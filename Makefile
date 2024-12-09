@@ -96,6 +96,7 @@ services:\n  $\
     volumes:\n      $\
       - /data:/data\n      $\
 	  - /data2:/data2\n      $\
+	  - /data3:/data3\n	$\
 "
 # Create override file for who does need customized volume mount on Docker Compose configurations.
 ${OVERRIDE_FILE}:  # It does not overwrite the existing file
@@ -104,6 +105,6 @@ ${OVERRIDE_FILE}:  # It does not overwrite the existing file
 overrides: ${OVERRIDE_FILE}
 
 # Auto run full (frequently-used) routines
-cxr: build exec
+irail: build exec
 test:
 	docker compose -p ${PROJECT} exec ${SERVICE} /bin/zsh test.sh

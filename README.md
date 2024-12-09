@@ -63,7 +63,8 @@ Stay tuned for updates on pretrained models and datasets, which will be made ava
 1. **Create the environment**:
 
    ```bash
-   conda create -n llm2clip python=3.8
+   make irail
+   conda create -n llm2clip python=3.10
    conda activate llm2clip
    pip install -r requirements.txt
    ```
