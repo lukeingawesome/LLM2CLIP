@@ -1,0 +1,41 @@
+services:
+  dev:
+    hostname: ${HOSTNAME}
+    image: ${IMAGE_NAME}
+    ipc: host
+    tty: true
+    init: true
+    stdin_open: true
+    volumes:
+      - .:${PROJECT_ROOT:-/opt/project}
+      - ${DOTCACHE_DIR}:/home/${USR}/.cache  # pre-trained weight download 반복 회피로 시간 절약
+      - ~/.ssh:/home/${USR}/.ssh
+      - /data2:/data2
+      - /data:/model
+      - /BARO_Cluster/data/data:/data
+      - /data3:/data3
+
+    build:
+      target: ${TARGET_STAGE:-dev}
+      context: .
+      dockerfile: Dockerfile
+      args:
+        BASE_IMAGE: ${BASE_IMAGE:-ghcr.io/irail/cxr-dev-base}
+        PROJECT_ROOT: ${PROJECT_ROOT:-/opt/project}
+        GRP: ${GRP}
+        USR: ${USR}
+        GID: ${GID}
+        UID: ${UID}
+
+    working_dir: ${PROJECT_ROOT:-/opt/project}
+    user: ${UID}:${GID}
+    shm_size: 64g
+    environment:
+      CUDA_DEVICE_ORDER: PCI_BUS_ID
+    deploy:
+      resources:
+        reservations:
+          devices:
+            - driver: nvidia
+              count: all
+              capabilities: [ gpu ]
