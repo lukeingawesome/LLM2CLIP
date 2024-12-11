@@ -1,110 +1,152 @@
-.PHONY: configure up exec build start down run ls check cache-env
+.PHONY: env over build up exec down run ls start
+.PHONY: check vs install-compose pre-commit pyre-apply
 
 # Convenience `make` recipes for Docker Compose.
 # See URL below for documentation on Docker Compose.
 # https://docs.docker.com/engine/reference/commandline/compose
 
 # **Change `SERVICE` to specify other services and projects.**
-SERVICE = dev
-COMMAND = /bin/zsh
+# Note that variables defined in the host shell are ignored if the
+# `.env` file also defines those variables due to the current logic.
+SERVICE = train
+COMMAND = /usr/bin/zsh --login
 
 # `PROJECT` is equivalent to `COMPOSE_PROJECT_NAME`.
-# Project names are made unique for each user to prevent name clashes.
-# MS accounts has period (".") within username. It should be removed to meet docker container name rules.
-USR_SAFE := $(shell id -un | sed 's/\.//g')
-PROJECT := $(shell hostname)-${USR_SAFE}
-PROJECT_ROOT := /opt/project
+# Project names are made unique for each user to prevent name clashes,
+# which may cause issues if multiple users are using the same account.
+# Specify `PROJECT` for the `make` command if this is the case.
+_PROJECT = "${SERVICE}-${USR}"
+# The `COMPOSE_PROJECT_NAME` variable must be lowercase.
+PROJECT = $(shell echo ${_PROJECT} | tr "[:upper:]" "[:lower:]")-`date +"%Y%m%d-%H%M%S"`
+PROJECT_ROOT = /opt/project
 
-# Environment variables
-BASE_IMAGE = ghcr.io/irail/cxr-dev-base:20240320
-GID := $(shell id -g)
-UID := $(shell id -u)
-USR := $(shell id -un)
-GRP := $(shell id -gn)
-HOSTNAME := $(shell hostname)
-HOME := $(shell echo ~${USR})
-IMAGE_NAME := irail-dev:${USR_SAFE}
-DOTCACHE_DIR = ${HOME}/.cache
+# Creates a `.env` file in ${PWD} if it does not exist.
+# This will help prevent UID/GID bugs in `docker-compose.yaml`,
+# which unfortunately cannot use shell outputs in the file.
+# Image names have the usernames appended to them to prevent
+# name collisions between different users.
+# The timezone is Asia/Seoul by default because I live here.
+TZ ?= Asia/Seoul
+GID = $(shell id -g)
+UID = $(shell id -u)
+GRP = $(shell id -gn)
+USR = $(shell id -un)
 
-COMPOSE_DOCKER_CLI_BUILD = 1
-DOCKER_BUILDKIT = 1
+REPOSITORY = irail
+TAG = "${SERVICE}-${USR}"
+_IMAGE_NAME = "${REPOSITORY}:${TAG}"
+# Image names are made lowercase even though Docker can
+# recognize uppercase for cross-platform compatibility.
+IMAGE_NAME = $(shell echo ${_IMAGE_NAME} | tr "[:upper:]" "[:lower:]")
 
-export BASE_IMAGE GID UID GRP USR HOSTNAME IMAGE_NAME PROJECT PROJECT_ROOT DOTCACHE_DIR
-export COMPOSE_DOCKER_CLI_BUILD DOCKER_BUILDKIT
+# Makefiles require `$\` at the end of a line for multi-line string values.
+# https://www.gnu.org/software/make/manual/html_node/Splitting-Lines.html
+ENV_TEXT = "$\
+\# When using the \`root\` user with UID=0/USR=root, set \`ADD_USER=exclude\`.\n$\
+GID=${GID}\n$\
+UID=${UID}\n$\
+GRP=${GRP}\n$\
+USR=${USR}\n$\
+SERVICE=${SERVICE}\n$\
+\# Do not use the same \`PROJECT\` name for different projects on the same host!\n$\
+PROJECT=${PROJECT}\n$\
+PROJECT_ROOT=${PROJECT_ROOT}\n$\
+IMAGE_NAME=${IMAGE_NAME}\n$\
+COMMAND=${COMMAND}\n$\
+TZ=${TZ}\n$\
+"
 
-ENV_FILE := .env
-cache-env:  # Not actually necessary, but it's helpful for debugging w/o Makefile
-	@rm -rf "${ENV_FILE}"; \
-	printf "### Environment variables:\n"; \
-	printf "BASE_IMAGE=$$BASE_IMAGE\n" >> "${ENV_FILE}";\
-	printf "GID=$$GID\n" >> "${ENV_FILE}"; \
-	printf "UID=$$UID\n" >> "${ENV_FILE}"; \
-	printf "GRP=$$GRP\n" >> "${ENV_FILE}"; \
-	printf "USR=$$USR\n" >> "${ENV_FILE}"; \
-	printf "HOSTNAME=$$HOSTNAME\n" >> "${ENV_FILE}"; \
-	printf "IMAGE_NAME=$$IMAGE_NAME\n" >> "${ENV_FILE}"; \
-	printf "PROJECT=$$PROJECT\n" >> "${ENV_FILE}"; \
-	printf "PROJECT_ROOT=$$PROJECT_ROOT\n" >> "${ENV_FILE}"; \
-	printf "DOTCACHE_DIR=$$DOTCACHE_DIR\n" >> "${ENV_FILE}"; \
-	printf "COMPOSE_DOCKER_CLI_BUILD=$$COMPOSE_DOCKER_CLI_BUILD\n" >> "${ENV_FILE}"; \
-	printf "DOCKER_BUILDKIT=$$DOCKER_BUILDKIT\n" >> "${ENV_FILE}"; \
-	cat "${ENV_FILE}"; \
-	printf "\n";
+# The `.env` file must be checked via shell as is cannot be a Makefile target.
+# Doing so would make it impossible to reference `.env` in the `-include` command.
+env:  # Creates the `.env` file if it does not exist.
+	@if [ -f ${ENV_FILE} ]; then echo "\`${ENV_FILE}\` already exists!"; \
+  	else printf ${ENV_TEXT} >> ${ENV_FILE}; fi
 
-dotcache:  # Creates `${HOME}/.cache` dir if it does not exist.
-	@if [ ! -d "${DOTCACHE_DIR}" ]; then \
-		mkdir -p -m 755 ${DOTCACHE_DIR}; \
-	fi && \
-	if [ "$(shell stat --format '%U%G' ${DOTCACHE_DIR})" != "${USR}${GRP}" ]; then \
-		chown ${USR}:${GRP} ${DOTCACHE_DIR}; \
-	fi;
+check:  # Checks if the `.env` file exists.
+	@if [ ! -f "${ENV_FILE}" ]; then \
+		printf "File \`${ENV_FILE}\` does not exist. " && \
+		printf "Run \`make env\` to create \`${ENV_FILE}\`.\n" && \
+		exit 1; \
+	fi
 
-configure: dotcache cache-env
-PROJECT=mm_hbko
-build: configure # Start service. Rebuilds the image from the Dockerfile before creating a new container. # + Monorepo pip editable install included.
-	docker compose -p ${PROJECT} up --build -d ${SERVICE} && \
-	printf "\n### Installing user-requirements.txt..\n\n" && \
-	docker commit ${PROJECT}-${SERVICE}-1 ${IMAGE_NAME} && \
-	printf "\n### Restarting the service (down & up) to make container has the updated image id.\n\n" && \
-	docker compose -p ${PROJECT} down && \
-	docker compose -p ${PROJECT} up --no-build -d ${SERVICE}
-up:  # Start service. Creates a new container from the image.
+# Creates VSCode server directory to prevent Docker Compose
+# from creating the directory with `root` ownership.
+VSCODE_SERVER_PATH = ${HOME}/.vscode-server
+vs:
+	@mkdir -p ${VSCODE_SERVER_PATH}
+
+OVERRIDE_FILE = docker-compose.override.yaml
+# The newline symbol is placed at the start of the line because
+# Makefiles do not read the initial spaces otherwise.
+# The user's $HOME directory on the host should not be mounted on the
+# container's $HOME directory as this would override the configurations
+# inside the container with those from the host.
+# The home directory is therefore mounted in a separate directory,
+# which also serves as an example of how to make volume pairings.
+OVERRIDE_BASE = "$\
+services:$\
+\n  ${SERVICE}:$\
+\n    volumes:$\
+\n      - $$"{HOME}":/mnt/home$\
+\n"
+# Create override file for Docker Compose configurations for each user.
+# For example, different users may use different host volume directories.
+${OVERRIDE_FILE}:
+	printf ${OVERRIDE_BASE} >> ${OVERRIDE_FILE}
+# Cannot use `override` as a recipe name as it is a `make` keyword.
+over: ${OVERRIDE_FILE}
+
+# Optionally read variables from the environment file if it exists.
+# This line must be placed after all other variable definitions to allow
+# variables in the `${ENV_FILE}` to be overridden by user-defined values.
+ENV_FILE = .env
+-include ${ENV_FILE}
+
+build: check vs # Rebuild the image before creating a new container.
+	COMPOSE_DOCKER_CLI_BUILD=1 DOCKER_BUILDKIT=1 \
+	docker compose -p ${PROJECT} up	--build -d ${SERVICE}
+build-only: check # Build the image without creating a new container.
+	COMPOSE_DOCKER_CLI_BUILD=1 DOCKER_BUILDKIT=1 \
+	docker compose -p ${PROJECT} build ${SERVICE}
+up: check vs  # Start service. Creates a new container from the image.
+	COMPOSE_DOCKER_CLI_BUILD=1 DOCKER_BUILDKIT=1 \
 	docker compose -p ${PROJECT} up -d ${SERVICE}
 exec:  # Execute service. Enter interactive shell.
+	DOCKER_BUILDKIT=1 \
 	docker compose -p ${PROJECT} exec ${SERVICE} ${COMMAND}
-start:  # Start a stopped service without recreating the container. Useful if the previous container must not deleted.
+# Useful if the previous container must not be deleted.
+start:  # Start a stopped service without recreating the container.
 	docker compose -p ${PROJECT} start ${SERVICE}
-stop:
-	docker compose -p ${PROJECT} stop ${SERVICE}
-down:  # Shut down service and delete containers, volumes, networks, etc.
+down:  # Shut down the service and delete containers, volumes, networks, etc.
 	docker compose -p ${PROJECT} down
-run:  # Used for debugging cases where service will not start.
-	docker compose -p ${PROJECT} run --rm ${SERVICE} ${COMMAND} --gpus all
+run: check vs  # Used for debugging cases where the service will not start.
+	docker compose -p ${PROJECT} run --rm ${SERVICE} ${COMMAND}
 ls:  # List all services.
 	docker compose ls -a
 
-OVERRIDE_FILE = docker-compose.override.yaml
-# Makefiles do not read the initial spaces, hence the inclusion of
-# indentation at the end of the line. Not pretty but it works.
-OVERRIDE_TEMPLATE = "$\
-\# You can customize volume mounts over the given docker-compose.yaml\n$\
-\# You better not mount directly on container user home dir (\`/home/${USER}\`),\n$\
-\# since it may get affected by Dockerfile build routines.\n$\
-\# FYI, ${PROJECT_ROOT} will be your workdir by default.\n$\
-services:\n  $\
-  ${SERVICE}:\n    $\
-    volumes:\n      $\
-      - /data:/data\n      $\
-	  - /data2:/data2\n      $\
-	  - /data3:/data3\n	$\
-"
-# Create override file for who does need customized volume mount on Docker Compose configurations.
-${OVERRIDE_FILE}:  # It does not overwrite the existing file
-	printf ${OVERRIDE_TEMPLATE} >> ${OVERRIDE_FILE}
+# Utility for installing Docker Compose on Linux (but not WSL) systems.
+# Visit https://docs.docker.com/compose/install for the full documentation.
+COMPOSE_VERSION = v2.23.3
+COMPOSE_OS_ARCH = linux-x86_64
+COMPOSE_URL = https://github.com/docker/compose/releases/download/${COMPOSE_VERSION}/docker-compose-${COMPOSE_OS_ARCH}
+COMPOSE_PATH = ${HOME}/.docker/cli-plugins
+COMPOSE_FILE = ${COMPOSE_PATH}/docker-compose
 
-overrides: ${OVERRIDE_FILE}
+${COMPOSE_FILE}:
+	mkdir -p "${COMPOSE_PATH}"
+	curl -fksSL "${COMPOSE_URL}" -o "${COMPOSE_FILE}"
+	chmod +x "${COMPOSE_FILE}"
 
-# Auto run full (frequently-used) routines
-irail: build exec
-test:
-	docker compose -p ${PROJECT} exec ${SERVICE} /bin/zsh test.sh
+install-compose: ${COMPOSE_FILE}
+
+pre-commit:
+	pre-commit run --all-files
+
+PYRE_CONFIGURATION = .pyre_configuration
+${PYRE_CONFIGURATION}:
+	pyre init
+
+# Perform static analysis on the codebase and
+# apply the annotations to the code in-place.
+pyre-apply: ${PYRE_CONFIGURATION}
+	pyre infer -i
