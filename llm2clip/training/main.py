@@ -31,7 +31,6 @@ from training.optim import create_optimizer, get_all_parameters
 
 from peft import LoraConfig, get_peft_model
 
-
 def random_seed(seed=42, rank=0):
     torch.manual_seed(seed + rank)
     np.random.seed(seed + rank)
@@ -39,6 +38,7 @@ def random_seed(seed=42, rank=0):
 
 
 def main(args):
+    
     args, ds_init = parse_args(args)
 
     if ds_init is not None:

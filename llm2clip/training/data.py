@@ -44,6 +44,57 @@ ImageFile.LOAD_TRUNCATED_IMAGES = True # Truncated File Read
 Image.MAX_IMAGE_PIXELS = None # DecompressionBombWarning
 ImageFile.MAX_IMAGE_PIXELS = None
 
+
+
+import pandas as pd
+from torch.utils.data import Dataset, DataLoader
+from PIL import Image
+import torch
+
+class CustomCSVDataset(Dataset):
+    def __init__(self, csv_file, transform=None, img_key='image_path', caption_key='caption', tokenizer=None):
+        """
+        Args:
+            csv_file (string): Path to the csv file
+            transform (callable, optional): Optional transform to be applied on images
+            img_key (string): Column name for image paths
+            caption_key (string): Column name for captions
+            tokenizer (callable, optional): Optional tokenizer for processing captions
+        """
+        self.data_frame = pd.read_csv(csv_file)
+        self.transform = transform
+        self.img_key = img_key
+        self.caption_key = caption_key
+        self.tokenizer = tokenizer
+        
+    def __len__(self):
+        return len(self.data_frame)
+    
+    def __getitem__(self, idx):
+        """Returns one sample of data"""
+        if torch.is_tensor(idx):
+            idx = idx.tolist()
+            
+        # Get image path and caption
+        img_path = self.data_frame.iloc[idx][self.img_key]
+        caption = str(self.data_frame.iloc[idx][self.caption_key])
+        
+        # Load and process image
+        image = Image.open(img_path).convert('RGB')
+        if self.transform:
+            image = self.transform(image)
+            
+        # Process caption if tokenizer is provided
+        if self.tokenizer:
+            caption = self.tokenizer([caption])[0]
+            
+        return image, caption
+
+# Example usage:
+
+
+
+## Old
 class CsvDataset(Dataset):
     def __init__(self, input_filename, transforms, img_key, caption_key, sep="\t", tokenizer=None):
         logging.debug(f'Loading csv data from {input_filename}.')
@@ -726,6 +777,35 @@ class MixingDataLoader:
 
             yield batch
 
+def get_cxr_dataset(args, preprocess_fn, is_train, epoch=0, tokenizer=None):
+    input_filename = args.train_data if is_train else args.val_data
+    assert input_filename
+    dataset = CustomCSVDataset(
+        csv_file=input_filename,
+        transform=preprocess_fn,
+        img_key=args.csv_img_key,
+        caption_key=args.csv_caption_key,
+        tokenizer=tokenizer)
+    
+    num_samples = len(dataset)
+    sampler = DistributedSampler(dataset) if args.distributed and is_train else None
+    shuffle = is_train and sampler is None
+
+    dataloader = DataLoader(
+        dataset,
+        batch_size=args.batch_size,
+        shuffle=shuffle,
+        num_workers=args.workers,
+        pin_memory=True,
+        sampler=sampler,
+        drop_last=is_train,
+    )
+    dataloader.num_samples = num_samples
+    dataloader.num_batches = len(dataloader)
+
+    return DataInfo(dataloader, sampler)
+
+
 def get_csv_dataset(args, preprocess_fn, is_train, epoch=0, tokenizer=None):
     input_filename = args.train_data if is_train else args.val_data
     assert input_filename
@@ -867,6 +947,8 @@ def get_dataset_fn(data_path, dataset_type):
         return get_json_dataset
     elif dataset_type == "csv":
         return get_csv_dataset
+    elif dataset_type == "cxr":
+        return get_cxr_dataset
     elif dataset_type == "synthetic":
         return get_synthetic_dataset
     elif dataset_type == "auto":

@@ -241,6 +241,14 @@ def create_model(
     if isinstance(device, str):
         device = torch.device(device)
 
+    # Check if the device is a CUDA device and if it is available
+    if device.type == 'cuda' and not torch.cuda.is_available():
+        raise RuntimeError(f"CUDA device specified but CUDA is not available. Device: {device}")
+
+    if device.type == 'cuda' and device.index is not None:
+        if device.index >= torch.cuda.device_count():
+            raise RuntimeError(f"Invalid CUDA device index: {device.index}. Available devices: {torch.cuda.device_count()}")
+
     if pretrained and pretrained.lower() == 'openai':
         logging.info(f'Loading pretrained {model_name} from OpenAI.')
         model = load_openai_model(
@@ -354,7 +362,7 @@ def create_model(
         if "fp16" in precision or "bf16" in precision:
             logging.info(f'convert precision to {precision}')
             model = model.to(torch.bfloat16) if 'bf16' in precision else model.to(torch.float16)
-
+        
         model.to(device=device)
 
         # set image / mean metadata from pretrained_cfg if available, or use default

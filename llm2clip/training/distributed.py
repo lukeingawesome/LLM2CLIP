@@ -70,6 +70,7 @@ def init_distributed_device(args):
     args.world_size = 1
     args.rank = 0  # global rank
     args.local_rank = 0
+    
     if is_using_distributed():
         if 'SLURM_PROCID' in os.environ:
             # DDP via SLURM
@@ -87,7 +88,6 @@ def init_distributed_device(args):
         else:
             # DDP via torchrun, torch.distributed.launch
             args.local_rank, _, _ = world_info_from_env()
-            # if os.getenv('ENV_TYPE') == 'pytorch':
             torch.distributed.init_process_group(
                 backend=args.dist_backend,
                 init_method=args.dist_url,
@@ -97,13 +97,16 @@ def init_distributed_device(args):
         args.distributed = True
 
     if torch.cuda.is_available():
-        if args.distributed and not args.no_set_device_rank:
-            device = 'cuda:%d' % args.local_rank
+        if args.distributed:
+            # Let DeepSpeed manage device assignment
+            device = f'cuda:{args.local_rank}'
+            # Don't call torch.cuda.set_device() as DeepSpeed will handle this
         else:
             device = 'cuda:0'
-        torch.cuda.set_device(device)
+            torch.cuda.set_device(device)
     else:
         device = 'cpu'
+        
     args.device = device
     device = torch.device(device)
     return device
