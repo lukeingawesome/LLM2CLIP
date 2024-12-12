@@ -59,7 +59,7 @@ from llm2vec.models import (
     GemmaBiForMNTP,
     Qwen2BiForMNTP,
 )
-from dataset.Wiki1M_cc3m import get_cc3m_captions, merge_cc3m_wikiraw103
+from dataset.CXR import get_cxr_captions, CXRDataset
 # Will error if the minimal version of Transformers is not installed. Remove at your own risks.
 # check_min_version("4.38.0.dev0")
 
@@ -599,38 +599,13 @@ def main():
                 streaming=data_args.streaming,
             )
     else:
-        data_files = {}
-        if data_args.train_file is not None:
-            data_files["train"] = data_args.train_file
-            extension = data_args.train_file.split(".")[-1]
-        if data_args.validation_file is not None:
-            data_files["validation"] = data_args.validation_file
-            extension = data_args.validation_file.split(".")[-1]
-        if extension == "txt":
-            extension = "text"
-        raw_datasets = load_dataset(
-            extension,
-            data_files=data_files,
-            cache_dir=model_args.cache_dir,
-            token=model_args.token,
-        )
-
-        # If no validation data is there, validation_split_percentage will be used to divide the dataset.
-        if "validation" not in raw_datasets.keys():
-            raw_datasets["validation"] = load_dataset(
-                extension,
-                data_files=data_files,
-                split=f"train[:{data_args.validation_split_percentage}%]",
-                cache_dir=model_args.cache_dir,
-                token=model_args.token,
-            )
-            raw_datasets["train"] = load_dataset(
-                extension,
-                data_files=data_files,
-                split=f"train[{data_args.validation_split_percentage}%:]",
-                cache_dir=model_args.cache_dir,
-                token=model_args.token,
-            )
+        # Use CXR dataset if no dataset name is provided
+        cxr_dataset = get_cxr_captions("/opt/project/tmp.csv")
+        validation_split = int(len(cxr_dataset) * data_args.validation_split_percentage / 100)
+        raw_datasets = datasets.DatasetDict({
+            "train": cxr_dataset.select(range(validation_split, len(cxr_dataset))),
+            "validation": cxr_dataset.select(range(validation_split))
+        })
 
     # See more about loading any type of standard or custom dataset (from files, python dict, pandas DataFrame, etc) at
     # https://huggingface.co/docs/datasets/loading_datasets.
