@@ -24,8 +24,10 @@ import sys
 import warnings
 from dataclasses import dataclass, field
 from itertools import chain
-from typing import Optional, Any, Tuple, List
+from typing import Optional, Any, Tuple, List, Union, Iterator
 import numpy as np
+import pyarrow as pa
+from pyarrow import Table
 
 import datasets
 import evaluate
@@ -469,6 +471,72 @@ class MNTPTrainer(Trainer):
         # Good practice: save your training arguments together with the trained model
         torch.save(self.args, os.path.join(output_dir, "training_args.bin"))
 
+
+class CXRDataset(datasets.Dataset):
+    def __init__(self, file_path):
+        # Create Arrow table from the data
+        data = get_cxr_captions(file_path)
+        # Ensure data is a list of strings
+        if not isinstance(data, list):
+            data = list(data)
+        data = [str(text) for text in data]  # Convert all items to strings
+        
+        arrow_data = {"text": data}
+        self._data = datasets.Dataset.from_dict(arrow_data)
+        super().__init__(self._data._data)
+    
+    def __len__(self):
+        return len(self._data)
+    
+    def __getitem__(self, idx):
+        return self._data[idx]
+
+
+def table_iter(table: Union[Table, datasets.Dataset], batch_size: int, drop_last_batch=False) -> Iterator[pa.Table]:
+    """Iterate over sub-tables of size `batch_size`.
+
+    Args:
+        table (`Union[pyarrow.Table, datasets.Dataset]`):
+            PyArrow table or Hugging Face Dataset to iterate over.
+        batch_size (`int`):
+            Size of each sub-table to yield.
+        drop_last_batch (`bool`, defaults to `False`):
+            Drop the last batch if it is smaller than `batch_size`.
+    """
+    if isinstance(table, datasets.Dataset):
+        # For Hugging Face Dataset, use the built-in batch method
+        for i in range(0, len(table), batch_size):
+            if drop_last_batch and i + batch_size > len(table):
+                break
+            batch = table.select(range(i, min(i + batch_size, len(table))))
+            # Convert to PyArrow table for consistency
+            yield pa.Table.from_pydict(batch)
+    else:
+        # Original implementation for PyArrow Tables
+        chunks_buffer = []
+        chunks_buffer_size = 0
+        for chunk in table.to_reader(max_chunksize=batch_size):
+            if len(chunk) == 0:
+                continue
+            elif chunks_buffer_size + len(chunk) < batch_size:
+                chunks_buffer.append(chunk)
+                chunks_buffer_size += len(chunk)
+                continue
+            elif chunks_buffer_size + len(chunk) == batch_size:
+                chunks_buffer.append(chunk)
+                yield pa.Table.from_batches(chunks_buffer)
+                chunks_buffer = []
+                chunks_buffer_size = 0
+            else:
+                cropped_chunk_length = batch_size - chunks_buffer_size
+                chunks_buffer.append(chunk.slice(0, cropped_chunk_length))
+                yield pa.Table.from_batches(chunks_buffer)
+                chunks_buffer = [chunk.slice(cropped_chunk_length, len(chunk) - cropped_chunk_length)]
+                chunks_buffer_size = len(chunk) - cropped_chunk_length
+        if not drop_last_batch and chunks_buffer:
+            yield pa.Table.from_batches(chunks_buffer)
+
+
 def main():
     # See all possible arguments in src/transformers/training_args.py
     # or by passing the --help flag to this script.
@@ -559,56 +627,15 @@ def main():
     # Set seed before initializing model.
     # set_seed(training_args.seed)
     enable_full_determinism(training_args.seed)
-
-    # Get the datasets: you can either provide your own CSV/JSON/TXT training and evaluation files (see below)
-    # or just provide the name of one of the public datasets available on the hub at https://huggingface.co/datasets/
-    # (the dataset will be downloaded automatically from the datasets Hub
-    #
-    # For CSV/JSON files, this script will use the column called 'text' or the first column. You can easily tweak this
-    # behavior (see below)
-    #
-    # In distributed training, the load_dataset function guarantee that only one local process can concurrently
-    # download the dataset.
-    if data_args.dataset_name is not None:
-        # Downloading and loading a dataset from the hub.
-        raw_datasets = load_dataset(
-            data_args.dataset_name,
-            data_args.dataset_config_name,
-            cache_dir=model_args.cache_dir,
-            token=model_args.token,
-            streaming=data_args.streaming,
-        )
-        if data_args.cc3m is not None:
-            cc3m = get_cc3m_captions(data_args.cc3m)
-            raw_datasets = merge_cc3m_wikiraw103(cc3m, raw_datasets)
-        if "validation" not in raw_datasets.keys():
-            raw_datasets["validation"] = load_dataset(
-                data_args.dataset_name,
-                data_args.dataset_config_name,
-                split=f"train[:{data_args.validation_split_percentage}%]",
-                cache_dir=model_args.cache_dir,
-                token=model_args.token,
-                streaming=data_args.streaming,
-            )
-            raw_datasets["train"] = load_dataset(
-                data_args.dataset_name,
-                data_args.dataset_config_name,
-                split=f"train[{data_args.validation_split_percentage}%:]",
-                cache_dir=model_args.cache_dir,
-                token=model_args.token,
-                streaming=data_args.streaming,
-            )
-    else:
-        # Use CXR dataset if no dataset name is provided
-        cxr_dataset = get_cxr_captions("/opt/project/tmp.csv")
-        validation_split = int(len(cxr_dataset) * data_args.validation_split_percentage / 100)
+    print(data_args)
+    # Replace the dataset loading logic with CXRDataset
+    if data_args.train_file is not None and data_args.validation_file is not None:
         raw_datasets = datasets.DatasetDict({
-            "train": cxr_dataset.select(range(validation_split, len(cxr_dataset))),
-            "validation": cxr_dataset.select(range(validation_split))
+            "train": CXRDataset(file_path=data_args.train_file),
+            "validation": CXRDataset(file_path=data_args.validation_file)
         })
-
-    # See more about loading any type of standard or custom dataset (from files, python dict, pandas DataFrame, etc) at
-    # https://huggingface.co/docs/datasets/loading_datasets.
+    else:
+        raise ValueError("Please provide both --train_file and --validation_file.")
 
     # Load pretrained model and tokenizer
     #
