@@ -30,6 +30,7 @@ from peft import LoraConfig, get_peft_model
 
 from llm2vec_wrapper import LLM2VecWrapper as LLM2Vec
 from dataset.utils import load_dataset
+from dataset.CXR import CXRDataset
 from llm2vec.loss.utils import load_loss
 from llm2vec.experiment_utils import generate_experiment_id
 
@@ -48,7 +49,7 @@ MODEL_TYPES = tuple(conf.model_type for conf in MODEL_CONFIG_CLASSES)
 
 
 def prepare_for_tokenization(model, text, pooling_mode="mean"):
-    if model.config._name_or_path == "meta-llama/Meta-Llama-3-8B-Instruct":
+    if model.config._name_or_path in ["meta-llama/Meta-Llama-3-8B-Instruct", "meta-llama/Llama-3.2-3B", "meta-llama/Llama-3.2-1B", "meta-llama/Llama-3.2-8B"]:
         text = (
             "<|start_header_id|>user<|end_header_id|>\n\n" + text.strip() + "<|eot_id|>"
         )
@@ -194,10 +195,16 @@ class DataTrainingArguments:
 
     dataset_name: Optional[str] = field(
         default=None,
-        metadata={"help": "The name of the dataset to use. Options: E5"},
+        metadata={"help": "The name of the dataset to use. Options: E5, CXR"},
     )
     dataset_file_path: Optional[str] = field(
         default=None, metadata={"help": "The input training data file or folder."}
+    )
+    dataframe_path: Optional[str] = field(
+        default=None, metadata={"help": "Path to the dataframe file"}
+    )
+    cxr: Optional[str] = field(
+        default=None, metadata={"help": "CXR-specific configuration"}
     )
     # TODO: implement this
     max_train_samples: Optional[int] = field(
@@ -272,6 +279,10 @@ class DefaultCollator:
         sentence_features = []
         for idx in range(num_texts):
             tokenized = self.model.tokenize(texts[idx])
+            # Only set requires_grad for floating point tensors
+            for key in tokenized:
+                if isinstance(tokenized[key], torch.Tensor) and tokenized[key].is_floating_point():
+                    tokenized[key].requires_grad_(True)
             sentence_features.append(tokenized)
 
         return sentence_features, labels
@@ -303,14 +314,28 @@ class LLM2VecSupervisedTrainer(Trainer):
         return_outputs: bool = False,
     ) -> Union[Tuple[torch.Tensor, torch.Tensor], torch.Tensor]:
         features, labels = inputs
-        q_reps = self.model(features[0])
-        d_reps = self.model(features[1])
+        
+        # Ensure model is in training mode
+        model.train()
+        
+        # Get embeddings with gradient tracking
+        with torch.set_grad_enabled(True):
+            q_reps = self.model(features[0])
+            d_reps = self.model(features[1])
 
-        d_reps_neg = None
-        if len(features) > 2:
-            d_reps_neg = self.model(features[2])
+            d_reps_neg = None
+            if len(features) > 2:
+                d_reps_neg = self.model(features[2])
 
-        loss = self.loss_function(q_reps, d_reps, d_reps_neg)
+            # Ensure tensors require gradients
+            if not q_reps.requires_grad:
+                q_reps.requires_grad_(True)
+            if not d_reps.requires_grad:
+                d_reps.requires_grad_(True)
+            if d_reps_neg is not None and not d_reps_neg.requires_grad:
+                d_reps_neg.requires_grad_(True)
+
+            loss = self.loss_function(q_reps, d_reps, d_reps_neg)
 
         if return_outputs:
             output = torch.cat(
@@ -361,84 +386,51 @@ class LLM2VecSupervisedTrainer(Trainer):
 
 
 def main():
+    # Initialize accelerator at the very beginning with minimal configuration
+    accelerator = Accelerator()
+    # Get the state immediately after initialization
+    state = accelerator.state
+
     parser = HfArgumentParser(
         (ModelArguments, DataTrainingArguments, TrainingArguments, CustomArguments)
     )
     if len(sys.argv) == 2 and sys.argv[1].endswith(".json"):
-        # If we pass only one argument to the script and it's the path to a json file,
-        # let's parse it to get our arguments.
         model_args, data_args, training_args, custom_args = parser.parse_json_file(
             json_file=os.path.abspath(sys.argv[1])
         )
     else:
-        (
-            model_args,
-            data_args,
-            training_args,
-            custom_args,
-        ) = parser.parse_args_into_dataclasses()
+        model_args, data_args, training_args, custom_args = parser.parse_args_into_dataclasses()
+
+    # Configure DDP after parsing arguments
     if training_args.ddp_find_unused_parameters:
-        kwargs = [
-            DistributedDataParallelKwargs(
-                dim=0,
-                broadcast_buffers=True,
-                bucket_cap_mb=25,
-                find_unused_parameters=True,
-                check_reduction=False,
-                gradient_as_bucket_view=False,
-            )
-        ]
-    else:
-        kwargs = []
-    accelerator = Accelerator(kwargs_handlers=kwargs)
+        accelerator.state.ddp_handler = DistributedDataParallelKwargs(
+            find_unused_parameters=True,
+            broadcast_buffers=True,
+            bucket_cap_mb=25,
+            check_reduction=False,
+            gradient_as_bucket_view=False,
+        )
 
     set_seed(training_args.seed)
 
-    if training_args.gradient_checkpointing:
-        training_args.gradient_checkpointing_kwargs = {"use_reentrant": False}
+    # Use state.process_index to determine the total number of processes
+    num_processes = state.num_processes if hasattr(state, 'num_processes') else 1
 
-    if custom_args.experiment_id is not None:
-        experiment_id = custom_args.experiment_id
-    else:
-        experiment_id = generate_experiment_id(
-            name=data_args.dataset_name,
-            split="train",
-            model_name=(
-                model_args.model_name_or_path
-                if "/" not in model_args.model_name_or_path
-                else model_args.model_name_or_path.split("/")[-1]
-            ),
-            pooling_mode=model_args.pooling_mode,
-            train_batch_size=training_args.per_device_train_batch_size
-            * accelerator.num_processes
-            * training_args.gradient_accumulation_steps,
-            max_seq_length=model_args.max_seq_length,
-            bidirectional=model_args.bidirectional,
-            epochs=training_args.num_train_epochs,
-            seed=training_args.seed,
-            warmup_steps=training_args.warmup_steps,
-            lr=training_args.learning_rate,
-            lora_r=custom_args.lora_r,
-        )
-
-    training_args.output_dir = f"{training_args.output_dir}/{experiment_id}"
-
-    # TODO: can also pass separator arg here
     train_dataset = load_dataset(
-        data_args.dataset_name,
-        split="train",
-        file_path=data_args.dataset_file_path,
-        effective_batch_size=training_args.per_device_train_batch_size
-        * accelerator.num_processes,
-        extra_cc3m=data_args.cc3m,
-    )
+            data_args.dataset_name,
+            split="train",
+            file_path=data_args.dataset_file_path,
+            effective_batch_size=training_args.per_device_train_batch_size
+            * num_processes,
+            dataframe_path=data_args.dataframe_path,
+        )
 
     train_examples = [
         train_dataset[i]
         for i in tqdm(
             range(len(train_dataset)),
             desc="Loading train examples...",
-            disable=not accelerator.is_main_process,
+            disable=not accelerator.is_local_main_process,
         )
     ]
 
@@ -450,7 +442,7 @@ def main():
     model = LLM2Vec.from_pretrained(
         base_model_name_or_path=model_args.model_name_or_path,
         enable_bidirectional=model_args.bidirectional,
-        peft_model_name_or_path=model_args.peft_model_name_or_path,
+        peft_model_name_or_path=model_args.peft_model_name_or_path, # TODO: remove this
         merge_peft=True,
         pooling_mode=model_args.pooling_mode,
         max_length=model_args.max_seq_length,
@@ -467,11 +459,27 @@ def main():
         lora_dropout=custom_args.lora_dropout,
     )
 
+    # # Initialize PEFT only once
+    # if not hasattr(model.model, 'peft_config'):
+    #     model.model = initialize_peft(
+    #         model.model,
+    #         lora_r=custom_args.lora_r,
+    #         lora_alpha=2 * custom_args.lora_r,
+    #         lora_dropout=custom_args.lora_dropout,
+    #     )
+
     tokenizer = model.tokenizer
 
     train_loss = load_loss(custom_args.loss_class, scale=custom_args.loss_scale)
 
     data_collator = DefaultCollator(model)
+
+    # Add this before trainer initialization
+    if training_args.gradient_checkpointing:
+        model.gradient_checkpointing_enable()
+        training_args.gradient_checkpointing_kwargs = {
+            "use_reentrant": False
+        }
 
     trainer = LLM2VecSupervisedTrainer(
         model=model,

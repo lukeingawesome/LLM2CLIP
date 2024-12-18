@@ -61,7 +61,7 @@ from llm2vec.models import (
     GemmaBiForMNTP,
     Qwen2BiForMNTP,
 )
-from dataset.CXR import get_cxr_captions, CXRDataset
+from dataset.CXR import get_cxr_captions
 # Will error if the minimal version of Transformers is not installed. Remove at your own risks.
 # check_min_version("4.38.0.dev0")
 

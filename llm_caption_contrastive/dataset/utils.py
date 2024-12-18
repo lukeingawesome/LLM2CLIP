@@ -1,4 +1,5 @@
 from .E5_cc3m import E5Data
+from .CXR import CXRDataset
 
 
 def load_dataset(dataset_name, split="validation", file_path=None, **kwargs):
@@ -12,6 +13,7 @@ def load_dataset(dataset_name, split="validation", file_path=None, **kwargs):
     """
     dataset_mapping = {
         "E5": E5Data,
+        "cxr": CXRDataset
     }
 
     if dataset_name not in dataset_mapping:
