@@ -209,6 +209,44 @@ def _build_text_tower(
         )
     return text
 
+def _build_text_tower(
+        embed_dim: int,
+        text_cfg: CLIPTextCfg,
+        quick_gelu: bool = False,
+        cast_dtype: Optional[torch.dtype] = None,
+):
+    if isinstance(text_cfg, dict):
+        text_cfg = CLIPTextCfg(**text_cfg)
+
+    if text_cfg.hf_model_name:
+        text = HFTextEncoder(
+            text_cfg.hf_model_name,
+            output_dim=embed_dim,
+            tokenizer_name=text_cfg.hf_tokenizer_name,
+            proj=text_cfg.proj,
+            pooler_type=text_cfg.pooler_type,
+            masked_language_modeling=text_cfg.masked_language_modeling
+       )
+    elif text_cfg.use_embedding:
+        text = TextProj(embedding_dim=4096, output_dim=embed_dim)
+    else:
+        act_layer = QuickGELU if quick_gelu else nn.GELU
+        norm_layer = LayerNorm
+
+        text = TextTransformer(
+            context_length=text_cfg.context_length,
+            vocab_size=text_cfg.vocab_size,
+            width=text_cfg.width,
+            heads=text_cfg.heads,
+            layers=text_cfg.layers,
+            ls_init_value=text_cfg.ls_init_value,
+            output_dim=embed_dim,
+            act_layer=act_layer,
+            norm_layer= FusedLayerNorm if text_cfg.fusedLN else norm_layer,
+            xattn=text_cfg.xattn,
+            attn_mask=text_cfg.attn_mask,
+        )
+    return text
 
 class LinearBlock(nn.Module):
     def __init__(self, dim, expansion_factor=4, dropout=0.,norm_layer=LayerNorm):

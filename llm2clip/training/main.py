@@ -8,6 +8,7 @@ sys.path.append(os.getcwd())
 import numpy as np
 import torch
 from torch.cuda.amp import GradScaler
+import torch.nn as nn
 
 try:
     import wandb
@@ -28,7 +29,7 @@ from training.params import parse_args
 from training.scheduler import warmup_cosine_lr
 from training.train import train_one_epoch, evaluate, extract_features
 from training.optim import create_optimizer, get_all_parameters
-
+from llm2vec_wrapper import LLM2VecWrapper as LLM2Vec
 from peft import LoraConfig, get_peft_model
 
 def random_seed(seed=42, rank=0):
@@ -143,7 +144,48 @@ def main(args):
     )
 
     random_seed(args.seed, args.rank)
+    if args.llm2vec_path:   
+        text_model = LLM2Vec.from_pretrained(
+            base_model_name_or_path=args.text_base,
+            enable_bidirectional=True,
+            peft_model_name_or_path=args.llm2vec_path,
+            merge_peft=True,
+            pooling_mode="mean",
+            max_length=512,
+            torch_dtype=torch.bfloat16,
+        )
+        # Add a trainable projection layer
+        projection_layer = nn.Sequential(
+            nn.LayerNorm(text_model.config.hidden_size),
+            nn.Linear(text_model.config.hidden_size, model.visual.head.out_features)
+        ).to(device)
 
+        # Create a wrapper that combines LLM2Vec with projection
+        class LLM2VecWithProjection(nn.Module):
+            def __init__(self, llm2vec_model, projection):
+                super().__init__()
+                self.model = llm2vec_model
+                self.projection = projection
+                # self.tokenizer = llm2vec_model.tokenizer
+
+            def forward(self, text):
+                embeddings = self.model(text)
+                return self.projection(embeddings)
+
+            def lock(self, unlocked_layers=0, freeze_layer_norm=True):
+                # Freeze LLM2Vec weights but keep projection trainable
+                for param in self.model.parameters():
+                    param.requires_grad = False
+
+            def set_grad_checkpointing(self, enable=True):
+                self.model.gradient_checkpointing_enable() if enable else self.model.gradient_checkpointing_disable()
+
+        # Replace the text model with our wrapped version
+        model.text = LLM2VecWithProjection(text_model.model, projection_layer)
+        for param in model.parameters():
+            # Check if parameter dtype is  Float (float32)
+            if param.dtype == torch.float32:
+                param.data = param.data.to(torch.float16)
     total_n_parameters = sum(p.numel() for p in model.parameters())
     logging.info(f'number of total params: {total_n_parameters}')
 
@@ -180,14 +222,17 @@ def main(args):
         model.lock_image_tower(
             unlocked_groups=args.lock_image_unlocked_groups,
             freeze_bn_stats=args.lock_image_freeze_bn_stats)
-    if args.lock_text:
-        logging.info("Lock text tower...")
-        model.lock_text_tower(
-            unlocked_layers=args.lock_text_unlocked_layers,
-            freeze_layer_norm=args.lock_text_freeze_layer_norm)
 
     if args.grad_checkpointing:
-        model.set_grad_checkpointing()
+        if args.llm2vec_path:
+            model.visual.set_grad_checkpointing()
+        else:
+            if args.lock_text:
+                logging.info("Lock text tower...")  
+                model.lock_text_tower(
+                    unlocked_layers=args.lock_text_unlocked_layers,
+                    freeze_layer_norm=args.lock_text_freeze_layer_norm)
+            model.set_grad_checkpointing()
 
     if is_master(args):
         logging.info("Model:")
@@ -292,7 +337,7 @@ def main(args):
                 logging.info("=> no checkpoint found at '{}'".format(args.resume))
 
     # initialize datasets
-    data = get_data(args, (preprocess_train, preprocess_val), epoch=start_epoch, tokenizer=get_tokenizer(args.model))
+    data = get_data(args, (preprocess_train, preprocess_val), epoch=start_epoch, tokenizer=text_model.tokenizer if args.llm2vec_path else get_tokenizer(args.model))
     assert len(data), 'At least one train or eval dataset must be specified.'
 
     # create scheduler if train
@@ -345,8 +390,9 @@ def main(args):
     for epoch in range(start_epoch, args.epochs):
         if is_master(args):
             logging.info(f'Start epoch {epoch}')
-
-        train_one_epoch(model, data, epoch, optimizer, scaler, scheduler, args, writer)
+        tokenizer = text_model.tokenizer if args.llm2vec_path else get_tokenizer(args.model)
+        # text_config = text_model.config if args.llm2vec_path else None
+        train_one_epoch(model, tokenizer, data, epoch, optimizer, scaler, scheduler, args, writer)
         completed_epoch = epoch + 1
 
         if any(v in data for v in ('val', 'imagenet-val', 'imagenet-v2')):

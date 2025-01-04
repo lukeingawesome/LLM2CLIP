@@ -1,6 +1,6 @@
 MODEL=EVA02-CLIP-L-14-336
 PRETRAINED=eva_clip
-python -m torch.distributed.launch --nproc_per_node=4 \
+python -m torch.distributed.launch --nproc_per_node=2 \
 	--use_env training/main.py \
         --enable-deepspeed \
         --grad-checkpointing \
@@ -10,14 +10,13 @@ python -m torch.distributed.launch --nproc_per_node=4 \
         --report-to="tensorboard, wandb" \
         --wandb-project-name="LLM2CLIP" \
         --wandb-notes="EVA02-CLIP-L-14-336" \
-        --train-data "/data/csv/llm2clip/mimic.csv" \
-        --eval-data-file=training/eval_datasets.yaml \
+        --train-data "/data/csv/llm2clip/mimic_clip.csv" \
         --pretrained=${PRETRAINED} \
         --precision "fp16" \
         --warmup 0 \
-        --batch-size=128 \
-        --eval-batch-size=1024 \
-        --log-every-n-steps 50 \
+        --batch-size=256 \
+        --eval-batch-size=256 \
+        --log-every-n-steps 100 \
         --epochs=20 \
         --lr=1e-5 \
         --visual-lr=1e-5 \
@@ -35,9 +34,11 @@ python -m torch.distributed.launch --nproc_per_node=4 \
         --seed 4096 \
         --gather-with-grad \
         --local-loss \
+        --text-base="meta-llama/Llama-3.2-3B" \
+        --llm2vec-path="/data/research/tmp/checkpoint-12600/" \
         --force-custom-clip \
         --optimizer="ap_adamw" \
         --zero-stage=1 \
         --dataset-type "cxr" \
-        --csv-img-key "preprocessed_path" \
-        --csv-caption-key "cxr_lite_findings_split"
+        --csv-img-key "img_path" \
+        --csv-caption-key "caption"

@@ -235,7 +235,7 @@ class CustomArguments:
     lora_r: int = field(default=8, metadata={"help": "The r value for lora"})
 
     stop_after_n_steps: int = field(
-        default=10000, metadata={"help": "Stop training after n steps"}
+        default=100000, metadata={"help": "Stop training after n steps"}
     )
 
     experiment_id: Optional[str] = field(
@@ -448,7 +448,6 @@ def main():
         max_length=model_args.max_seq_length,
         torch_dtype=torch_dtype,
         attn_implementation=model_args.attn_implementation,
-        extra_model_name_or_path=model_args.extra_model_name_or_path,
     )
 
     # model organization is LLM2VecModel.model -> HF Model, we have to apply PEFT to the inner model

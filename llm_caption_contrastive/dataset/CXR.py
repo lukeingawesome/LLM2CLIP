@@ -9,10 +9,7 @@ logger = get_logger(__name__, log_level="INFO")
 
 CXR_EMBEDDING_PROMPTS = {
     "cxr": "Retrieve semantically similar sentences",
-    # "cc3m": [
-    #     "Given a sentence, retrieve a semantically similar sentence",
-    #     "Given a detailed sentence, retrieve a short relevant sentence",
-    # ],
+    "cxr2": "Summarize the give findings",
 }
 
 
@@ -38,9 +35,13 @@ class CXRDataset(Dataset):
 
     def __len__(self):
         return len(self.data)
-    def get_cxr(self):
+    def get_cxr(self, dataset_name):
         cxr = pd.read_csv(self.dataframe_path)
-        data = cxr[['caption1', 'caption2']].values
+        if dataset_name == "cxr":
+            cxr = cxr.loc[cxr['dataset'] != "summary"].reset_index(drop=True)
+        else:
+            cxr = cxr.loc[cxr['dataset'] == "summary"].reset_index(drop=True)
+        data = cxr[['caption1', 'caption2', 'neg']].values
         # Build list of dictionaries
         list_of_dict = []
 
@@ -48,25 +49,37 @@ class CXRDataset(Dataset):
         for i in range(len(data)):
             caption1 = data[i][0]
             caption2 = data[i][1]
-            
+            negative = data[i][2]
             # Generate a random number (0 or 1)
             rand_num = random.randint(0, 1)
-            
             # Set query and positive based on random number
-            if rand_num == 0:
+            if self.dataset_name == "cxr2":
                 query = caption1
                 positive = caption2
+            elif self.dataset_name == "cxr":
+                if rand_num == 0:
+                    query = caption1
+                    positive = caption2
+                else:
+                    query = caption2
+                    positive = caption1
             else:
-                query = caption2
-                positive = caption1
-            
+                query = caption1
+                positive = caption2
             # Ensure neg is different from current row
-            while True:
-                rand_index = random.randint(0, len(data) - 1)
-                if rand_index != i:  # Ensure neg is different from current row
-                    neg = data[rand_index][1] if rand_num == 0 else data[rand_index][0]
-                    break
-            
+            if (negative != '-1')&isinstance(negative, str):
+                neg = negative
+            else:
+                while True:
+                    rand_index = random.randint(0, len(data) - 1)
+                    if rand_index != i:  # Ensure neg is different from current row
+                        neg = data[rand_index][1] if rand_num == 0 else data[rand_index][0]
+                        if (neg != '-1')&isinstance(neg, str):
+                            break
+                        else:
+                            continue
+            if isinstance(neg, int):
+                assert 0
             # Create dictionary and add to list
             list_of_dict.append({
                 'query': query,
@@ -87,16 +100,16 @@ class CXRDataset(Dataset):
             logger.info(f"Loading dataset {dataset}...")
             if dataset not in data_map:
                 data_map[dataset] = []
-            if dataset == "cxr":
+            if dataset in ["cxr", "cxr2"]:
                 if self.dataframe_path is not None:
-                    dataset_samples = self.get_cxr()
+                    dataset_samples = self.get_cxr(dataset)
                 else:
                     continue
             else:
                 assert False, "No specified dataset"
 
             for i, sample in enumerate(dataset_samples):
-                if dataset != "cxr":
+                if dataset in ["cxr", "cxr2"]:
                     instruction = (
                         CXR_EMBEDDING_PROMPTS[dataset][sample["random_num"]]
                     )
@@ -108,7 +121,14 @@ class CXRDataset(Dataset):
                     )
                 query = f"{instruction}; " + self.separator + sample["query"]
                 pos = self.separator + sample["positive"]
-                neg = self.separator + sample["negative"]
+                try:
+                    neg = self.separator + sample["negative"]
+                except:
+                    print(sample['random_num'])
+                    print(sample['query'])
+                    print(sample['positive'])
+                    print(sample['negative'])
+                    assert 0
 
                 data_map[dataset].append(id_)
 

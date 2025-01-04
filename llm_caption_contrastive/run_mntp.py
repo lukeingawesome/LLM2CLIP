@@ -392,7 +392,7 @@ class CustomArguments:
     )
 
     stop_after_n_steps: int = field(
-        default=10000, metadata={"help": "Stop training after n steps"}
+        default=100000, metadata={"help": "Stop training after n steps"}
     )
 
     data_collator_type: str = field(

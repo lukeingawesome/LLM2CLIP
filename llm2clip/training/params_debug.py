@@ -15,7 +15,7 @@ def parse_args(args):
     parser.add_argument(
         "--train-data",
         type=str,
-        default=None,
+        default="/data/csv/llm2clip/mimic_clip.csv",
         help="Path to csv file with training data",
     )
     parser.add_argument(
@@ -65,7 +65,7 @@ def parse_args(args):
     )
     parser.add_argument(
         "--dataset-type",
-        choices=["webdataset", "csv", "synthetic", "auto","json", "cxr"],
+        choices=["webdataset", "csv", "synthetic", "auto", "json", "cxr"],
         default="cxr",
         help="Which type of dataset to process."
     )
@@ -132,13 +132,13 @@ def parse_args(args):
     parser.add_argument(
         "--csv-img-key",
         type=str,
-        default="filepath",
+        default="img_path",
         help="For csv-like datasets, the name of the key for the image paths."
     )
     parser.add_argument(
         "--csv-caption-key",
         type=str,
-        default="title",
+        default="caption",
         help="For csv-like datasets, the name of the key for the captions."
     )
     parser.add_argument(
@@ -180,45 +180,61 @@ def parse_args(args):
     parser.add_argument(
         "--name",
         type=str,
-        default=None,
+        default="debug_T_vitl336_mimic",
         help="Optional identifier for the experiment when storing logs. Otherwise use current time.",
     )
     parser.add_argument(
-        "--workers", type=int, default=4, help="Number of dataloader workers per GPU."
+        "--workers",
+        type=int,
+        default=4,
+        help="Number of dataloader workers per GPU."
     )
     parser.add_argument(
-        "--batch-size", type=int, default=64, help="Batch size per GPU."
+        "--batch-size",
+        type=int,
+        default=8,
+        help="Batch size per GPU."
     )
     parser.add_argument(
-        "--eval-batch-size", type=int, default=64, help="Batch size per GPU for eval."
+        "--eval-batch-size",
+        type=int,
+        default=8,
+        help="Batch size per GPU for eval."
     )
     parser.add_argument(
-        "--epochs", type=int, default=32, help="Number of epochs to train for."
+        "--epochs",
+        type=int,
+        default=1,
+        help="Number of epochs to train for."
     )
-    parser.add_argument("--lr", type=float, default=None, help="Learning rate.")
-    parser.add_argument("--text-lr", type=float, default=None, help="Learning rate of text encoder.")
-    parser.add_argument("--visual-lr", type=float, default=None, help="Learning rate of visual encoder.")
+    parser.add_argument("--lr", type=float, default=1e-5, help="Learning rate.")
+    parser.add_argument("--text-lr", type=float, default=1e-5, help="Learning rate of text encoder.")
+    parser.add_argument("--visual-lr", type=float, default=1e-5, help="Learning rate of visual encoder.")
 
     parser.add_argument("--beta1", type=float, default=None, help="Adam beta 1.")
     parser.add_argument("--beta2", type=float, default=None, help="Adam beta 2.")
     parser.add_argument("--eps", type=float, default=None, help="Adam epsilon.")
 
-    parser.add_argument("--wd", type=float, default=0.2, help="Weight decay.")
-    parser.add_argument("--text-wd", type=float, default=None, help="Weight decay of text encoder.")
-    parser.add_argument("--visual-wd", type=float, default=None, help="Weight decay of visual encoder.")
+    parser.add_argument("--wd", type=float, default=0.05, help="Weight decay.")
+    parser.add_argument("--text-wd", type=float, default=0.05, help="Weight decay of text encoder.")
+    parser.add_argument("--visual-wd", type=float, default=0.05, help="Weight decay of visual encoder.")
 
     parser.add_argument("--ld", type=float, default=1.0, help="Learning rate Layer decay.")
-    parser.add_argument("--text-ld", type=float, default=None, help="Learning rate Layer decay of text encoder.")
-    parser.add_argument("--visual-ld", type=float, default=None, help="Learning rate Layer decay of visual encoder.")
+    parser.add_argument("--text-ld", type=float, default=1.01, help="Learning rate Layer decay of text encoder.")
+    parser.add_argument("--visual-ld", type=float, default=0.85, help="Learning rate Layer decay of visual encoder.")
     
     parser.add_argument(
-        "--warmup", type=int, default=10000, help="Number of steps to warmup for."
+        "--warmup",
+        type=int,
+        default=0,
+        help="Number of steps to warmup for."
     )
     parser.add_argument(
         "--use-bn-sync",
         default=False,
         action="store_true",
-        help="Whether to use batch norm sync.")
+        help="Whether to use batch norm sync."
+    )
     parser.add_argument(
         "--skip-scheduler",
         action="store_true",
@@ -226,7 +242,10 @@ def parse_args(args):
         help="Use this flag to skip the learning rate decay.",
     )
     parser.add_argument(
-        "--save-frequency", type=int, default=1, help="How often to save checkpoints."
+        "--save-frequency",
+        type=int,
+        default=1,
+        help="How often to save checkpoints."
     )
     parser.add_argument(
         "--save-most-recent",
@@ -235,10 +254,16 @@ def parse_args(args):
         help="Always save the most recent model trained to epoch_latest.pt.",
     )
     parser.add_argument(
-        "--zeroshot-frequency", type=int, default=2, help="How often to run zero shot."
+        "--zeroshot-frequency",
+        type=int,
+        default=1,
+        help="How often to run zero shot."
     )
     parser.add_argument(
-        "--val-frequency", type=int, default=1, help="How often to run evaluation with val data."
+        "--val-frequency",
+        type=int,
+        default=1,
+        help="How often to run evaluation with val data."
     )
     parser.add_argument(
         "--resume",
@@ -249,18 +274,18 @@ def parse_args(args):
     parser.add_argument(
         "--precision",
         choices=["amp", "amp_bf16", "amp_bfloat16", "bf16", "fp16", "fp32"],
-        default="amp",
+        default="fp16",
         help="Floating point precision."
     )
     parser.add_argument(
         "--model",
         type=str,
-        default="RN50",
+        default="EVA02-CLIP-L-14-336",
         help="Name of the vision backbone to use.",
     )
     parser.add_argument(
         "--pretrained",
-        default='',
+        default='eva_clip',
         type=str,
         help="Use a pretrained CLIP model weights with the specified tag or file path.",
     )
@@ -283,7 +308,7 @@ def parse_args(args):
     )
     parser.add_argument(
         "--pretrained-text-model",
-        default=None,
+        default="",
         help="pretrained model.text."
     )
     parser.add_argument(
@@ -299,8 +324,12 @@ def parse_args(args):
         help="Path to the separate text encoder model."
     )
     parser.add_argument(
-        '--skip-list', type=str, nargs='+', default=[],
-        help='skip list of weights to load')
+        '--skip-list',
+        type=str,
+        nargs='+',
+        default=[],
+        help='skip list of weights to load'
+    )
 
     parser.add_argument('--enable-kd', action='store_true', default=False)
     parser.add_argument(
@@ -354,27 +383,37 @@ def parse_args(args):
         help="Freeze BatchNorm running stats in image tower for any locked layers.",
     )
     parser.add_argument(
-        '--image-mean', type=float, nargs='+', default=None, metavar='MEAN',
-        help='Override default image mean value of dataset')
+        '--image-mean',
+        type=float,
+        nargs='+',
+        default=None,
+        metavar='MEAN',
+        help='Override default image mean value of dataset'
+    )
     parser.add_argument(
-        '--image-std', type=float, nargs='+', default=None, metavar='STD',
-        help='Override default image std deviation of of dataset')
+        '--image-std',
+        type=float,
+        nargs='+',
+        default=None,
+        metavar='STD',
+        help='Override default image std deviation of of dataset'
+    )
     parser.add_argument(
         "--grad-checkpointing",
-        default=False,
-        action='store_true',
+        action="store_true",
+        default=True,
         help="Enable gradient checkpointing.",
     )
     parser.add_argument(
         "--local-loss",
-        default=False,
         action="store_true",
+        default=True,
         help="calculate loss w/ local features @ global (instead of realizing full global @ global matrix)"
     )
     parser.add_argument(
         "--gather-with-grad",
-        default=False,
         action="store_true",
+        default=True,
         help="enable full distributed gradient for feature gather"
     )
     parser.add_argument(
@@ -391,8 +430,8 @@ def parse_args(args):
     )
     parser.add_argument(
         "--force-custom-clip",
-        default=False,
-        action='store_true',
+        action="store_true",
+        default=True,
         help="Force use of CustomCLIP model (separate text-tower).",
     )
     parser.add_argument(
@@ -415,24 +454,27 @@ def parse_args(args):
         help="url used to set up distributed training",
     )
     parser.add_argument(
-        "--dist-backend", default="nccl", type=str, help="distributed backend"
+        "--dist-backend",
+        default="nccl",
+        type=str,
+        help="distributed backend"
     )
     parser.add_argument(
         "--report-to",
-        default='',
+        default="tensorboard, wandb",
         type=str,
         help="Options are ['wandb', 'tensorboard', 'wandb,tensorboard']"
     )
     parser.add_argument(
         "--wandb-notes",
-        default='',
         type=str,
+        default="DEBUG_EVA02-CLIP-L-14-336",
         help="Notes if logging with wandb"
     )
     parser.add_argument(
         "--debug",
-        default=False,
         action="store_true",
+        default=False,
         help="If true, more information is logged."
     )
     parser.add_argument(
@@ -455,13 +497,22 @@ def parse_args(args):
         help="Don't set device index from local rank (when CUDA_VISIBLE_DEVICES restricted to one per proc)."
     )
     parser.add_argument(
-        "--seed", type=int, default=0, help="Default random seed."
+        "--seed",
+        type=int,
+        default=4096,
+        help="Default random seed."
     )
     parser.add_argument(
-        "--grad-clip-norm", type=float, default=None, help="Gradient clip."
+        "--grad-clip-norm",
+        type=float,
+        default=5.0,
+        help="Gradient clip."
     )
     parser.add_argument(
-        "--grad-accumulation-steps", type=int, default=1, help="Gradient accumulation steps; only support deepspeed now."
+        "--grad-accumulation-steps",
+        type=int,
+        default=1,
+        help="Gradient accumulation steps; only support deepspeed now."
     )
     parser.add_argument(
         "--lock-text",
@@ -485,20 +536,20 @@ def parse_args(args):
     parser.add_argument(
         "--log-every-n-steps",
         type=int,
-        default=100,
-        help="Log every n steps to tensorboard/console/wandb.",
+        default=1,
+        help="Log every n steps to tensorboard/console/wandb."
     )
 
     parser.add_argument(
         "--wandb-project-name",
         type=str,
-        default='open-clip',
-        help="Name of the project if logging with wandb.",
+        default="LLM2CLIP",
+        help="Name of the project if logging with wandb."
     )
 
     parser.add_argument('--smoothing', type=float, default=0, help='Label smoothing (default: 0.)')
     parser.add_argument('--cache-dir', type=str, default=None, help='Default cache dir to cache model checkpoint.')
-    parser.add_argument('--optimizer', type=str, default='adamw', help='Default optimizer.')
+    parser.add_argument('--optimizer', type=str, default='ap_adamw', help='Default optimizer.')
 
     parser.add_argument('--enable-deepspeed', action='store_true', default=False)
     parser.add_argument('--zero-stage', type=int, default=1, help='stage of ZERO')

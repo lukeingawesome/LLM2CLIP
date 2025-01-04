@@ -14,7 +14,7 @@ except:
     from torch import inf
 import torch.nn.functional as F
 import torch.distributed as dist
-
+from llm2vec import LLM2Vec
 try:
     import wandb
 except ImportError:
@@ -74,7 +74,7 @@ def get_grad_norm_(parameters, norm_type: float = 2.0) -> torch.Tensor:
         total_norm = torch.norm(torch.stack([torch.norm(p.grad.detach(), norm_type).to(device) for p in parameters]), norm_type)
     return total_norm.to(dtype=torch.float32)
 
-def train_one_epoch(model, data, epoch, optimizer, scaler, scheduler, args, tb_writer=None):
+def train_one_epoch(model, tokenizer, data, epoch, optimizer, scaler, scheduler, args, tb_writer=None):
     device = torch.device(args.device)
     autocast = get_autocast(args.precision)
     cast_dtype = get_cast_dtype(args.precision)
@@ -101,8 +101,9 @@ def train_one_epoch(model, data, epoch, optimizer, scaler, scheduler, args, tb_w
     batch_time_m = AverageMeter()
     data_time_m = AverageMeter()
     end = time.time()
-
+    l2v = LLM2Vec(model.text.model, tokenizer, pooling_mode="mean", max_length=512) #TODO: modify this
     accumulate_count = 0
+    logit_scale = model.logit_scale
     for i, batch in enumerate(dataloader):
         # if i>3:
         #     break
@@ -114,7 +115,7 @@ def train_one_epoch(model, data, epoch, optimizer, scaler, scheduler, args, tb_w
         images, texts = batch
 
         images = images.to(device=device, dtype=cast_dtype, non_blocking=True)
-        texts = texts.to(device=device, dtype=cast_dtype, non_blocking=True)
+        texts = texts.to(device=device)
 
         data_time_m.update(time.time() - end)
         if args.enable_deepspeed:
@@ -122,9 +123,12 @@ def train_one_epoch(model, data, epoch, optimizer, scaler, scheduler, args, tb_w
             model.micro_steps = 0
         else:
             optimizer.zero_grad()
-   
+    
         with autocast():
-            image_features, text_features, logit_scale = model(images, texts)
+            # image_features, text_features, logit_scale = model(images, texts)
+            image_features = model.visual(images)
+            text_features = l2v.forward(texts) #TODO: Change dynamic
+            text_features = model.text.projection(text_features.to(dtype=cast_dtype))
             total_loss, acc = loss(image_features, text_features, logit_scale)
             clip_loss = total_loss.clone().detach()
 
@@ -255,6 +259,7 @@ def evaluate_iter(model, data, iter_nums, epoch, args, tb_writer=None):
     model.eval()
     
     with torch.no_grad():
+        
         retrieval_zero_shot_metrics = retrieval_eval(model, data, epoch, args)
         metrics.update(retrieval_zero_shot_metrics)
         zero_shot_metrics = zero_shot_eval(model, data, epoch, args)

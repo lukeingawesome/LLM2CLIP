@@ -1015,7 +1015,7 @@ def get_concat_dataset_fn(args, preprocess_train, epoch, tokenizer, is_train=Tru
     return DataInfo(dataloader, sampler)
 
 def get_data(args, preprocess_fns, epoch=0, tokenizer=None):
-    preprocess_train, preprocess_val = preprocess_fns
+    preprocess_train, preprocess_val = preprocess_fns ##TODO: Modify this
     data = {}
 
     if args.train_data_list:
