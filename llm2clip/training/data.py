@@ -84,11 +84,51 @@ class CustomCSVDataset(Dataset):
         if self.transform:
             image = self.transform(image)
             
-        # Process caption if tokenizer is provided
-        if self.tokenizer:
-            caption = self.tokenizer([caption])[0]
+        # # Process caption if tokenizer is provided
+        # if self.tokenizer:
+        #     caption = self.tokenizer([caption])[0]
             
         return image, caption
+    def collate_fn(self, batch):
+        images, texts = zip(*batch)
+        images = torch.stack(images)
+        
+        # Split texts
+        texts_2 = []
+        original_texts = []
+        for text in texts:
+            t = text.split("!@#$%^&*()")
+            texts_2.append(t[1] if len(t) > 1 else "")
+            original_texts.append("".join(t))
+
+        # Tokenize original texts with padding
+        
+        original = self.tokenizer(
+            original_texts,
+            return_tensors="pt",
+            padding=True,
+            truncation=True,
+            max_length=512,
+        )
+
+        # Process secondary texts and create embed masks
+        embed_mask = torch.zeros_like(original["attention_mask"])
+        for i, t in enumerate(texts_2):
+            if t:  # Only process non-empty secondary texts
+                ids = self.tokenizer(
+                    [t],
+                    return_tensors="pt",
+                    padding=True,
+                    truncation=True,
+                    max_length=512,
+                    add_special_tokens=False,
+                )
+                if len(ids["input_ids"][0]) > 0:
+                    embed_mask[i, -len(ids["input_ids"][0]):] = 1
+
+        original["embed_mask"] = embed_mask
+        return images, original
+    
 
 # Example usage:
 
@@ -799,6 +839,7 @@ def get_cxr_dataset(args, preprocess_fn, is_train, epoch=0, tokenizer=None):
         pin_memory=True,
         sampler=sampler,
         drop_last=is_train,
+        collate_fn=dataset.collate_fn
     )
     dataloader.num_samples = num_samples
     dataloader.num_batches = len(dataloader)

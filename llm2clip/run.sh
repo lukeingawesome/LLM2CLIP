@@ -5,8 +5,8 @@ python -m torch.distributed.launch --nproc_per_node=2 \
         --enable-deepspeed \
         --grad-checkpointing \
         --name="T_vitl336_mimic" \
-        --save-frequency 1  \
-        --zeroshot-frequency 1 \
+        --save-frequency 2  \
+        --zeroshot-frequency 2 \
         --report-to="tensorboard, wandb" \
         --wandb-project-name="LLM2CLIP" \
         --wandb-notes="EVA02-CLIP-L-14-336" \
@@ -14,9 +14,9 @@ python -m torch.distributed.launch --nproc_per_node=2 \
         --pretrained=${PRETRAINED} \
         --precision "fp16" \
         --warmup 0 \
-        --batch-size=256 \
-        --eval-batch-size=256 \
-        --log-every-n-steps 100 \
+        --batch-size=150 \
+        --eval-batch-size=150 \
+        --log-every-n-steps 200 \
         --epochs=20 \
         --lr=1e-5 \
         --visual-lr=1e-5 \
@@ -41,4 +41,4 @@ python -m torch.distributed.launch --nproc_per_node=2 \
         --zero-stage=1 \
         --dataset-type "cxr" \
         --csv-img-key "img_path" \
-        --csv-caption-key "caption"
+        --csv-caption-key "caption2"

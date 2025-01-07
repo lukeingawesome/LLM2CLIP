@@ -168,7 +168,7 @@ def parse_args(args):
     parser.add_argument(
         "--logs",
         type=str,
-        default="logs",
+        default="/model/llm2clip/logs",
         help="Where to store tensorboard logs. Use None to avoid storing logs.",
     )
     parser.add_argument(
