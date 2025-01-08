@@ -246,25 +246,24 @@ def train_one_epoch(model, tokenizer, data, epoch, optimizer, scaler, scheduler,
         eval_point = int(num_batches_per_epoch/5)
         if step>0 and step%eval_point ==0:
             if any(v in data for v in ('val', 'imagenet-val', 'imagenet-v2')):
-                evaluate_iter(model, data, step ,epoch, args, tb_writer)
+                evaluate_iter(model, tokenizer, data, step ,epoch, args, tb_writer)
                 torch.cuda.empty_cache()
                 model.train()
     # end for
 
-def evaluate_iter(model, data, iter_nums, epoch, args, tb_writer=None):
+def evaluate_iter(model, tokenizer, data, iter_nums, epoch, args, tb_writer=None):
     metrics = {}
     if not is_master(args):
         return metrics
     device = torch.device(args.device)
     model.eval()
-    
+    print('evaluating retrieval')
     with torch.no_grad():
-        
-        retrieval_zero_shot_metrics = retrieval_eval(model, data, epoch, args)
+        retrieval_zero_shot_metrics = retrieval_eval(model, l2v, data, epoch, args)
         metrics.update(retrieval_zero_shot_metrics)
-        zero_shot_metrics = zero_shot_eval(model, data, epoch, args)
+        zero_shot_metrics = zero_shot_eval(model, l2v, data, epoch, args)
         metrics.update(zero_shot_metrics)
-        
+    print(zero_shot_metrics)
     autocast = get_autocast(args.precision)
     cast_dtype = get_cast_dtype(args.precision)
     if 'val' in data:
@@ -276,14 +275,20 @@ def evaluate_iter(model, data, iter_nums, epoch, args, tb_writer=None):
         # FIXME this does not scale past small eval datasets
         # all_image_features @ all_text_features will blow up memory and compute very quickly
         cumulative_loss = 0.0
+        l2v = LLM2Vec(model.text.model, tokenizer, pooling_mode="mean", max_length=512) #TODO: modify this
         all_image_features, all_text_features = [], []
+        logit_scale = model.logit_scale
         with torch.no_grad():
             for i, batch in enumerate(dataloader):
                 images, texts = batch
                 images = images.to(device=device, dtype=cast_dtype, non_blocking=True)
-                texts = texts.to(device=device, dtype=cast_dtype, non_blocking=True)
+                texts = texts.to(device=device)
+
+
                 with autocast():
-                    image_features, text_features, logit_scale = model(images, texts)
+                    image_features = model.visual(images)
+                    text_features = l2v.forward(texts) #TODO: Change dynamic
+                    text_features = model.text.projection(text_features.to(dtype=cast_dtype))
                     # features are accumulated in CPU tensors, otherwise GPU memory exhausted quickly
                     # however, system RAM is easily exceeded and compute time becomes problematic
                     all_image_features.append(image_features.cpu())
@@ -341,19 +346,19 @@ def evaluate_iter(model, data, iter_nums, epoch, args, tb_writer=None):
     return metrics
 
 
-def evaluate(model, data, epoch, args, tb_writer=None):
+def evaluate(model, tokenizer, data, epoch, args, tb_writer=None):
     metrics = {}
     if not is_master(args):
         return metrics
     device = torch.device(args.device)
     model.eval()
     
-    
-    retrieval_zero_shot_metrics = retrieval_eval(model, data, epoch, args)
+    l2v = LLM2Vec(model.text.model, tokenizer, pooling_mode="mean", max_length=512) #TODO: modify this
+    retrieval_zero_shot_metrics = retrieval_eval(model, l2v, data, epoch, args)
     metrics.update(retrieval_zero_shot_metrics)
-    zero_shot_metrics = zero_shot_eval(model, data, epoch, args)
+    zero_shot_metrics = zero_shot_eval(model, l2v, data, epoch, args)
     metrics.update(zero_shot_metrics)
-
+    print(zero_shot_metrics)
     autocast = get_autocast(args.precision)
     cast_dtype = get_cast_dtype(args.precision)
 
@@ -367,15 +372,17 @@ def evaluate(model, data, epoch, args, tb_writer=None):
         # all_image_features @ all_text_features will blow up memory and compute very quickly
         cumulative_loss = 0.0
         all_image_features, all_text_features = [], []
+        logit_scale = model.logit_scale
+
         with torch.no_grad():
             for i, batch in enumerate(dataloader):
                 images, texts = batch
                 images = images.to(device=device, dtype=cast_dtype, non_blocking=True)
-                texts = texts.to(device=device, dtype=cast_dtype, non_blocking=True)
+                texts = texts.to(device=device)
                 with autocast():
-                    image_features, text_features, logit_scale = model(images, texts)
-                    # features are accumulated in CPU tensors, otherwise GPU memory exhausted quickly
-                    # however, system RAM is easily exceeded and compute time becomes problematic
+                    image_features = model.visual(images)
+                    text_features = l2v.forward(texts) #TODO: Change dynamic
+                    text_features = model.text.projection(text_features.to(dtype=cast_dtype))
                     all_image_features.append(image_features.cpu())
                     all_text_features.append(text_features.cpu())
                     logit_scale = logit_scale.mean()

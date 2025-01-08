@@ -192,13 +192,13 @@ def parse_args(args):
     parser.add_argument(
         "--batch-size",
         type=int,
-        default=8,
+        default=2,
         help="Batch size per GPU."
     )
     parser.add_argument(
         "--eval-batch-size",
         type=int,
-        default=8,
+        default=2,
         help="Batch size per GPU for eval."
     )
     parser.add_argument(

@@ -166,6 +166,30 @@ def parse_args(args):
         help="Path to imagenet v2 for conducting zero shot evaluation.",
     )
     parser.add_argument(
+        "--rsna",
+        type=str,
+        default=None,
+        help="Path to rsna for conducting zero shot evaluation.",
+    )
+    parser.add_argument(
+        "--siim",
+        type=str,
+        default=None,
+        help="Path to siim for conducting zero shot evaluation.",
+    )
+    parser.add_argument(
+        "--openi",
+        type=str,
+        default=None,
+        help="Path to openi for conducting zero shot evaluation.",
+    )
+    parser.add_argument(
+        "--chexpertplus",
+        type=str,
+        default=None,
+        help="Path to chexpertplus for conducting zero shot evaluation.",
+    )
+    parser.add_argument(
         "--logs",
         type=str,
         default="/model/llm2clip/logs",

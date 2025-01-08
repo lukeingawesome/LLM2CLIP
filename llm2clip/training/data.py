@@ -130,6 +130,33 @@ class CustomCSVDataset(Dataset):
         return images, original
     
 
+class CustomZeroshotDataset(Dataset):
+    def __init__(self, csv_file, transform=None, img_key='image_path'):
+        self.data_frame = pd.read_csv(csv_file)
+        self.transform = transform
+        self.img_key = img_key
+    def __len__(self):
+        return len(self.data_frame)
+    def __getitem__(self, idx):
+        """Returns one sample of data"""
+        if torch.is_tensor(idx):
+            idx = idx.tolist()
+            
+        # Get image path and caption
+        img_path = self.data_frame.iloc[idx][self.img_key]
+        label = str(self.data_frame.iloc[idx]['label'])
+        # Load and process image
+        image = Image.open(img_path).convert('RGB')
+        if self.transform:
+            image = self.transform(image)
+            
+        # # Process caption if tokenizer is provided
+        # if self.tokenizer:
+        #     caption = self.tokenizer([caption])[0]
+            
+        return image, label
+
+
 # Example usage:
 
 
@@ -405,6 +432,48 @@ def get_imagenet(args, preprocess_fns, split):
         sampler=sampler,
     )
 
+    return DataInfo(dataloader=dataloader, sampler=sampler)
+
+def get_rsna(args, preprocess_fn, is_train, epoch=0, tokenizer=None):
+    input_filename = args.rsna
+    assert input_filename
+    dataset = CustomZeroshotDataset(
+        csv_file=input_filename,
+        transform=preprocess_fn,
+        img_key=args.csv_img_key)
+
+    sampler = None
+
+    dataloader = DataLoader(
+        dataset,
+        batch_size=args.batch_size,
+        shuffle=False,
+        num_workers=args.workers,
+        pin_memory=True,
+        sampler=sampler,
+        drop_last=False,
+    )
+    return DataInfo(dataloader=dataloader, sampler=sampler)
+
+def get_siim(args, preprocess_fn, is_train, epoch=0, tokenizer=None):
+    input_filename = args.siim
+    assert input_filename
+    dataset = CustomZeroshotDataset(
+        csv_file=input_filename,
+        transform=preprocess_fn,
+        img_key=args.csv_img_key)
+    
+    sampler = None
+
+    dataloader = DataLoader(
+        dataset,
+        batch_size=args.batch_size,
+        shuffle=False,
+        num_workers=args.workers,
+        pin_memory=True,
+        sampler=sampler,
+        drop_last=False,
+    )
     return DataInfo(dataloader=dataloader, sampler=sampler)
 
 
@@ -846,7 +915,6 @@ def get_cxr_dataset(args, preprocess_fn, is_train, epoch=0, tokenizer=None):
 
     return DataInfo(dataloader, sampler)
 
-
 def get_csv_dataset(args, preprocess_fn, is_train, epoch=0, tokenizer=None):
     input_filename = args.train_data if is_train else args.val_data
     assert input_filename
@@ -910,16 +978,16 @@ def image_captions_collate_fn(batch):
     return imgs, texts
 
 def get_retrieval_dataset(args, preprocess_fn, is_train=False, tokenizer=None,
-                          input_filename=None, img_root=None, img_feature_path=None, text_feature_path=None):
+                          input_filename=None):
     # input_filename = args.train_data if is_train else args.val_data
     assert input_filename
-    dataset = RetrievalDataset(
-        input_filename,
-        preprocess_fn,
-        img_root=img_root,
-        img_feature_path=img_feature_path,
-        text_feature_path=text_feature_path,
-		tokenizer=tokenizer)
+    dataset = CustomCSVDataset(
+        csv_file=input_filename,
+        transform=preprocess_fn,
+        img_key=args.csv_img_key,
+        caption_key=args.csv_caption_key,
+        tokenizer=tokenizer)
+    
     num_samples = len(dataset)
     sampler = DistributedSampler(dataset) if args.distributed and is_train else None
     shuffle = is_train and sampler is None
@@ -932,7 +1000,7 @@ def get_retrieval_dataset(args, preprocess_fn, is_train=False, tokenizer=None,
         pin_memory=True,
         sampler=sampler,
         drop_last=is_train,
-        collate_fn=image_captions_collate_fn
+        collate_fn=dataset.collate_fn
     )
     dataloader.num_samples = num_samples
     dataloader.num_batches = len(dataloader)
@@ -990,6 +1058,10 @@ def get_dataset_fn(data_path, dataset_type):
         return get_csv_dataset
     elif dataset_type == "cxr":
         return get_cxr_dataset
+    elif dataset_type == "rsna":
+        return get_rsna
+    elif dataset_type == "siim":
+        return get_siim
     elif dataset_type == "synthetic":
         return get_synthetic_dataset
     elif dataset_type == "auto":
@@ -1083,23 +1155,16 @@ def get_data(args, preprocess_fns, epoch=0, tokenizer=None):
     if args.imagenet_v2 is not None:
         data["imagenet-v2"] = get_imagenet(args, preprocess_fns, "v2")
     
-    if args.eval_data_file:
-        datasets_info = yaml.safe_load(open(args.eval_data_file,'r'))
-        for info in datasets_info:
-            name = info['name']
-            logging.info(f'Loading {name} dataset.')
-            json_file = info['json_file']
-            img_root = info['img_root']
-            text_feature_path = info['text_feature_path']
-            img_feature_path = info.get('img_feature_path', None)
-            data[name] = get_retrieval_dataset(args, preprocess_val, input_filename=json_file, img_root=img_root,
-                                               text_feature_path=text_feature_path, img_feature_path=img_feature_path)
-    if args.flickr_test_file:
-        data['ret_flickr'] = get_retrieval_dataset(args, preprocess_val, 
-                                                   input_filename=args.flickr_test_file, img_root=args.flickr_img_root, 
-                                                   text_feature_path=args.flickr_text_features)
-    if args.coco_test_file:
-        data['ret_coco'] = get_retrieval_dataset(args, preprocess_val, 
-                                                   input_filename=args.coco_test_file, img_root=args.coco_img_root, 
-                                                   text_feature_path=args.coco_text_features)
+    if args.rsna is not None:
+        data["rsna"] = get_dataset_fn(args.rsna, "rsna")(args, preprocess_val, is_train=False)
+    
+    if args.siim is not None:
+        data["siim"] = get_dataset_fn(args.siim, "siim")(args, preprocess_val, is_train=False)
+
+    if args.openi:
+        data['openi'] = get_retrieval_dataset(args, preprocess_val, 
+                                                   input_filename=args.openi, tokenizer=tokenizer)
+    if args.chexpertplus:
+        data['chexpertplus'] = get_retrieval_dataset(args, preprocess_val, 
+                                                   input_filename=args.chexpertplus, tokenizer=tokenizer)
     return data

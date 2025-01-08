@@ -145,6 +145,7 @@ def main(args):
 
     random_seed(args.seed, args.rank)
     if args.llm2vec_path:   
+        print("Using LLM2Vec")
         text_model = LLM2Vec.from_pretrained(
             base_model_name_or_path=args.text_base,
             enable_bidirectional=True,
@@ -382,7 +383,7 @@ def main(args):
         return
         
     if 'train' not in data:
-        evaluate(model, data, start_epoch, args, writer)
+        evaluate(model, tokenizer, data, start_epoch, args, writer)
         return
 
     # torch.cuda.synchronize()
@@ -396,7 +397,7 @@ def main(args):
         completed_epoch = epoch + 1
 
         if any(v in data for v in ('val', 'imagenet-val', 'imagenet-v2')):
-            evaluate(model, data, completed_epoch, args, writer)
+            evaluate(model, tokenizer, data, completed_epoch, args, writer)
 
         # Saving checkpoints.
         # is_master(args) can not be here while using deepspped, otherwise ckpt can not be saved

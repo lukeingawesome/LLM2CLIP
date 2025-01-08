@@ -142,7 +142,7 @@ def batchify(func, X, Y, batch_size, device, *args, **kwargs):
     return torch.cat(results)
 
 
-def retrieval_global(model, dataloader, tokenizer,  device, precision, distributed=False):
+def retrieval_global(model, l2v, dataloader, device, precision, distributed=False):
     autocast = get_autocast(precision)
     cast_dtype = get_cast_dtype(precision)
     vis_embeds_list = []
@@ -150,15 +150,20 @@ def retrieval_global(model, dataloader, tokenizer,  device, precision, distribut
     # dataloader = dataloader_with_indices(dataloader)
     for images, texts in tqdm(dataloader):
         images = images.to(device, dtype=cast_dtype)
-        texts = torch.tensor(texts)
-        texts = texts.to(device, dtype=cast_dtype)
+        texts = texts.to(device)
         with torch.no_grad(), autocast():
             if distributed:
-                image_features = F.normalize(model.module.encode_image(images), dim=-1)
-                text_features = F.normalize(model.module.encode_text(texts), dim=-1)
+                image_features = model.visual(images)
+                text_features = l2v.forward(texts) #TODO: Change dynamic
+                text_features = model.text.projection(text_features.to(dtype=cast_dtype))
+                image_features = F.normalize(image_features, dim=-1)
+                text_features = F.normalize(text_features, dim=-1)
             else:
-                image_features = F.normalize(model.encode_image(images), dim=-1)
-                text_features = F.normalize(model.encode_text(texts), dim=-1)
+                image_features = model.visual(images)
+                text_features = l2v.forward(texts) #TODO: Change dynamic
+                text_features = model.text.projection(text_features.to(dtype=cast_dtype))
+                image_features = F.normalize(image_features, dim=-1)
+                text_features = F.normalize(text_features, dim=-1)
             vis_embeds_list.append(image_features)
             text_features_list.append(text_features)
         image_features = torch.cat(vis_embeds_list, dim=0)
@@ -224,40 +229,22 @@ def retrieval_global(model, dataloader, tokenizer,  device, precision, distribut
     return metrics
 
 
-def retrieval_eval(model, data, epoch, args):
+def retrieval_eval(model, l2v, data, epoch, args):
     if args.zeroshot_frequency == 0:
         return {}
     logging.info('Starting zero-shot retrieval.')
     
-    tokenizer = get_tokenizer(args.model)
-    tokenizer = None
     model.to(args.device)
     collect_results = {}
-    if 'DOCCI'  in data:
-        logging.info('Starting DOCCI.')
-        results = retrieval_global(model, data['DOCCI'].dataloader, tokenizer, args.device, args.precision)
+    if 'openi' in data:
+        logging.info('Starting Openi.')
+        results = retrieval_global(model, l2v, data['openi'].dataloader, args.device, args.precision)
         for key in results.keys():
-            collect_results['DOCCI/'+ key] = results[key]
-    if 'sharegpt4v'  in data:
-        logging.info('Starting Sharegpt4v.')
-        results = retrieval_global(model, data['sharegpt4v'].dataloader, tokenizer, args.device, args.precision)
+            collect_results['openi/'+ key] = results[key]
+    if 'chexpertplus' in data:
+        logging.info('Starting Chexpert.')
+        results = retrieval_global(model, l2v, data['chexpertplus'].dataloader, args.device, args.precision)
         for key in results.keys():
-            collect_results['Sharegpt4v/'+ key] = results[key]
-    if 'Urban1k'  in data:
-        logging.info('Starting Urban1k.')
-        results = retrieval_global(model, data['Urban1k'].dataloader, tokenizer, args.device, args.precision)
-        for key in results.keys():
-            collect_results['Urban1k/'+ key] = results[key]
-    if 'ret_flickr' in data:
-        logging.info('Starting Flickr.')
-        results = evaluate(model, data['ret_flickr'].dataloader, tokenizer, args.device, args.precision)
-        for key in results.keys():
-            collect_results['flickr/'+ key] = results[key]
-    if 'ret_coco' in data:
-        logging.info('Starting COCO.')
-        results = evaluate(model, data['ret_coco'].dataloader, tokenizer, args.device, args.precision)
-        for key in results.keys():
-            collect_results['coco/'+ key] = results[key]
-            
+            collect_results['chexpert/'+ key] = results[key]
     logging.info('Finished zero-shot retrieval.')
     return collect_results
