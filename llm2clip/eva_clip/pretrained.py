@@ -52,6 +52,7 @@ _VITB16 = dict(
     laion400m_e32=_pcfg(
         "https://github.com/mlfoundations/open_clip/releases/download/v0.2-weights/vit_b_16-laion400m_e32-55e67d44.pt"),
     laion2b_s34b_b88k=_pcfg(hf_hub='laion/CLIP-ViT-B-16-laion2B-s34B-b88K/'),
+    evax=_pcfg(hf_hub='MapleF/eva_x/eva_x_base_patch16_merged520k_mim.pt'),
 )
 
 _EVAB16 = dict(
@@ -59,6 +60,7 @@ _EVAB16 = dict(
     eva02=_pcfg(hf_hub='QuanSun/EVA-CLIP/EVA02_B_psz14to16.pt'),
     eva_clip=_pcfg(hf_hub='QuanSun/EVA-CLIP/EVA02_CLIP_B_psz16_s8B.pt'),
     eva02_clip=_pcfg(hf_hub='QuanSun/EVA-CLIP/EVA02_CLIP_B_psz16_s8B.pt'),
+    evax=_pcfg(hf_hub='MapleF/eva_x/eva_x_base_patch16_merged520k_mim.pt'),
 )
 
 _VITB16_PLUS_240 = dict(

@@ -38,7 +38,7 @@ except ImportError:
 
 import warnings
 warnings.filterwarnings("ignore")
-
+import re
 # from PIL import ImageFile
 ImageFile.LOAD_TRUNCATED_IMAGES = True # Truncated File Read
 Image.MAX_IMAGE_PIXELS = None # DecompressionBombWarning
@@ -51,8 +51,36 @@ from torch.utils.data import Dataset, DataLoader
 from PIL import Image
 import torch
 
+def apply_dropout(text):
+    # 30% chance to drop each attribute
+    if random.random() < 0.3:
+        # Replace view position
+        text = re.sub(r"This is a (\w+) view", "This is a unknown view", text)
+    
+    if random.random() < 0.3:
+        # Replace age
+        text = re.sub(r"The patient is (\d+) years old", "The patient is unknown years old", text)
+    
+    if random.random() < 0.3:
+        # Replace gender
+        text = re.sub(r"The patient's gender is (\w+)", "The patient's gender is unknown", text)
+    
+    return text
+
+def shuffle_sentences(text):
+    # Split the text into sentences using a regex to account for periods that end sentences
+    import re
+    sentences = re.split(r'(?<=[.!?])\s+', text)
+    
+    # Shuffle the sentences
+    random.shuffle(sentences)
+    
+    # Join the shuffled sentences back into a single string
+    shuffled_text = ' '.join(sentences)
+    return shuffled_text
+
 class CustomCSVDataset(Dataset):
-    def __init__(self, csv_file, transform=None, img_key='image_path', caption_key='caption', tokenizer=None):
+    def __init__(self, csv_file, transform=None, img_key='image_path', caption_key='caption', tokenizer=None, is_train=True):
         """
         Args:
             csv_file (string): Path to the csv file
@@ -66,7 +94,7 @@ class CustomCSVDataset(Dataset):
         self.img_key = img_key
         self.caption_key = caption_key
         self.tokenizer = tokenizer
-        
+        self.is_train = is_train
     def __len__(self):
         return len(self.data_frame)
     
@@ -78,7 +106,9 @@ class CustomCSVDataset(Dataset):
         # Get image path and caption
         img_path = self.data_frame.iloc[idx][self.img_key]
         caption = str(self.data_frame.iloc[idx][self.caption_key])
-        
+        if self.is_train:
+            caption = apply_dropout(caption)
+            caption = shuffle_sentences(caption)
         # Load and process image
         image = Image.open(img_path).convert('RGB')
         if self.transform:
@@ -894,7 +924,8 @@ def get_cxr_dataset(args, preprocess_fn, is_train, epoch=0, tokenizer=None):
         transform=preprocess_fn,
         img_key=args.csv_img_key,
         caption_key=args.csv_caption_key,
-        tokenizer=tokenizer)
+        tokenizer=tokenizer,
+        is_train=is_train)
     
     num_samples = len(dataset)
     sampler = DistributedSampler(dataset) if args.distributed and is_train else None
@@ -986,7 +1017,8 @@ def get_retrieval_dataset(args, preprocess_fn, is_train=False, tokenizer=None,
         transform=preprocess_fn,
         img_key=args.csv_img_key,
         caption_key=args.csv_caption_key,
-        tokenizer=tokenizer)
+        tokenizer=tokenizer,
+        is_train=is_train)
     
     num_samples = len(dataset)
     sampler = DistributedSampler(dataset) if args.distributed and is_train else None

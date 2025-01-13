@@ -5,13 +5,28 @@ import datasets
 from llm2vec.dataset.dataset import DataSample, TrainSample, Dataset #ValidationSample
 from accelerate.logging import get_logger
 import pandas as pd
+import re
 logger = get_logger(__name__, log_level="INFO")
 
 CXR_EMBEDDING_PROMPTS = {
     "cxr": "Retrieve semantically similar sentences",
     "cxr2": "Summarize the give findings",
+    "cxr3": "Classify the given report",
 }
 
+def shuffle_sentences(text, is_shuffle=True):
+    # Split the text into sentences using a regex to account for periods that end sentences
+    if is_shuffle:
+        sentences = re.split(r'(?<=[.!?])\s+', text)
+    
+    # Shuffle the sentences
+        random.shuffle(sentences)
+
+        # Join the shuffled sentences back into a single string
+        shuffled_text = ' '.join(sentences)
+    else:
+        shuffled_text = text
+    return shuffled_text
 
 class CXRDataset(Dataset):
     def __init__(
@@ -35,13 +50,15 @@ class CXRDataset(Dataset):
 
     def __len__(self):
         return len(self.data)
-    def get_cxr(self, dataset_name):
+    def get_cxr(self):
         cxr = pd.read_csv(self.dataframe_path)
-        if dataset_name == "cxr":
-            cxr = cxr.loc[cxr['dataset'] != "summary"].reset_index(drop=True)
-        else:
-            cxr = cxr.loc[cxr['dataset'] == "summary"].reset_index(drop=True)
-        data = cxr[['caption1', 'caption2', 'neg']].values
+        # if dataset_name == "cxr2":
+        #     cxr = cxr.loc[cxr['dataset'] == "summary"].reset_index(drop=True)
+        # elif = dataset_name == "cxr3":
+        #     cxr = cxr.loc[cxr['dataset'] == "zeroshot"].reset_index(drop=True)
+        # else:
+        #     cxr = cxr.loc[(cxr['dataset'] == "summary")&(cxr)].reset_index(drop=True)
+        data = cxr[['caption1', 'caption2', 'neg', 'train']].values
         # Build list of dictionaries
         list_of_dict = []
 
@@ -50,22 +67,19 @@ class CXRDataset(Dataset):
             caption1 = data[i][0]
             caption2 = data[i][1]
             negative = data[i][2]
-            # Generate a random number (0 or 1)
+            dataset = data[i][3]
             rand_num = random.randint(0, 1)
-            # Set query and positive based on random number
-            if self.dataset_name == "cxr2":
+            if dataset in ["cxr2", "cxr3"]:
                 query = caption1
                 positive = caption2
-            elif self.dataset_name == "cxr":
+            else:
                 if rand_num == 0:
                     query = caption1
                     positive = caption2
                 else:
                     query = caption2
                     positive = caption1
-            else:
-                query = caption1
-                positive = caption2
+            positive = shuffle_sentences(positive, is_shuffle=True)
             # Ensure neg is different from current row
             if (negative != '-1')&isinstance(negative, str):
                 neg = negative
@@ -78,6 +92,7 @@ class CXRDataset(Dataset):
                             break
                         else:
                             continue
+            negative = shuffle_sentences(neg, is_shuffle=True)
             if isinstance(neg, int):
                 assert 0
             # Create dictionary and add to list
@@ -85,7 +100,8 @@ class CXRDataset(Dataset):
                 'query': query,
                 'positive': positive,
                 'negative': neg,
-                'random_num': rand_num
+                'random_num': rand_num,
+                'dataset': dataset
             })
         logger.info(f"Loaded {len(list_of_dict)} samples.")
         return list_of_dict
@@ -96,52 +112,53 @@ class CXRDataset(Dataset):
         data_map = {}
         all_samples = []
         id_ = 0
-        for dataset in CXR_EMBEDDING_PROMPTS:
-            logger.info(f"Loading dataset {dataset}...")
-            if dataset not in data_map:
-                data_map[dataset] = []
-            if dataset in ["cxr", "cxr2"]:
-                if self.dataframe_path is not None:
-                    dataset_samples = self.get_cxr(dataset)
-                else:
-                    continue
-            else:
-                assert False, "No specified dataset"
-
-            for i, sample in enumerate(dataset_samples):
-                if dataset in ["cxr", "cxr2"]:
-                    instruction = (
-                        CXR_EMBEDDING_PROMPTS[dataset][sample["random_num"]]
-                    )
-                else:
-                    instruction = (
-                        CXR_EMBEDDING_PROMPTS[dataset]
-                        if isinstance(CXR_EMBEDDING_PROMPTS[dataset], str)
-                        else CXR_EMBEDDING_PROMPTS[dataset][i % 2]
-                    )
-                query = f"{instruction}; " + self.separator + sample["query"]
-                pos = self.separator + sample["positive"]
-                try:
-                    neg = self.separator + sample["negative"]
-                except:
-                    print(sample['random_num'])
-                    print(sample['query'])
-                    print(sample['positive'])
-                    print(sample['negative'])
-                    assert 0
-
-                data_map[dataset].append(id_)
-
-                all_samples.append(
-                    DataSample(
-                        id_=id_,
-                        query=query,
-                        positive=pos,
-                        negative=neg,
-                        task_name=dataset,
-                    )
+        dataset_samples = self.get_cxr()
+        datasets = ['cxr', 'cxr2', 'cxr3'] # TODO: change to dataset_samples['dataset'].unique()
+        for dataset in datasets:
+            data_map[dataset] = []
+        # logger.info(f"Loading dataset {dataset}...")
+        # if dataset in ["cxr", "cxr2", "cxr3"]:
+        #     if self.dataframe_path is not None:
+        #         dataset_samples = self.get_cxr(dataset)
+        #     else:
+        #         pass
+        # else:
+        #     assert False, "No specified dataset"
+        # dataset_samples = self.get_cxr()
+        for i, sample in enumerate(dataset_samples):
+            if sample['dataset'] in ["cxr", "cxr2", "cxr3"]:
+                instruction = (
+                    CXR_EMBEDDING_PROMPTS[sample['dataset']][sample["random_num"]]
                 )
-                id_ += 1
+            else:
+                instruction = (
+                    CXR_EMBEDDING_PROMPTS[sample['dataset']]
+                    if isinstance(CXR_EMBEDDING_PROMPTS[sample['dataset']], str)
+                    else CXR_EMBEDDING_PROMPTS[sample['dataset']][i % 2]
+                )
+            query = f"{instruction}; " + self.separator + sample["query"]
+            pos = self.separator + sample["positive"]
+            try:
+                neg = self.separator + sample["negative"]
+            except:
+                print(sample['random_num'])
+                print(sample['query'])
+                print(sample['positive'])
+                print(sample['negative'])
+                assert 0
+
+            data_map[sample['dataset']].append(id_)
+
+            all_samples.append(
+                DataSample(
+                    id_=id_,
+                    query=query,
+                    positive=pos,
+                    negative=neg,
+                    task_name=sample['dataset'],
+                )
+            )
+            id_ += 1
 
 
         if self.shuffle_individual_datasets:

@@ -1,11 +1,12 @@
-MODEL=EVA02-CLIP-L-14-336
+MODEL=EVA02-CLIP-B-16
 PRETRAINED=eva_clip
 python -m torch.distributed.launch --nproc_per_node=2 \
 	--use_env training/main.py \
         --enable-deepspeed \
         --grad-checkpointing \
-        --name="mimic_L14336_caption_global" \
+        --name="mimic_B16448_caption_local" \
         --save-frequency 2  \
+        --local-loss \
         --zeroshot-frequency 2 \
         --report-to="tensorboard, wandb" \
         --wandb-project-name="LLM2CLIP" \

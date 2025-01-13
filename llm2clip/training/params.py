@@ -279,7 +279,7 @@ def parse_args(args):
     parser.add_argument(
         "--model",
         type=str,
-        default="RN50",
+        default="EVA02-CLIP-B-16",
         help="Name of the vision backbone to use.",
     )
     parser.add_argument(

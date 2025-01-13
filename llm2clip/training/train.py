@@ -257,6 +257,7 @@ def evaluate_iter(model, tokenizer, data, iter_nums, epoch, args, tb_writer=None
         return metrics
     device = torch.device(args.device)
     model.eval()
+    l2v = LLM2Vec(model.text.model, tokenizer, pooling_mode="mean", max_length=512) #TODO: modify this
     print('evaluating retrieval')
     with torch.no_grad():
         retrieval_zero_shot_metrics = retrieval_eval(model, l2v, data, epoch, args)
@@ -275,7 +276,6 @@ def evaluate_iter(model, tokenizer, data, iter_nums, epoch, args, tb_writer=None
         # FIXME this does not scale past small eval datasets
         # all_image_features @ all_text_features will blow up memory and compute very quickly
         cumulative_loss = 0.0
-        l2v = LLM2Vec(model.text.model, tokenizer, pooling_mode="mean", max_length=512) #TODO: modify this
         all_image_features, all_text_features = [], []
         logit_scale = model.logit_scale
         with torch.no_grad():

@@ -206,6 +206,12 @@ class DataTrainingArguments:
     cxr: Optional[str] = field(
         default=None, metadata={"help": "CXR-specific configuration"}
     )
+    cxr2: Optional[str] = field(
+        default=None, metadata={"help": "CXR-specific configuration"}
+    )
+    cxr3: Optional[str] = field(
+        default=None, metadata={"help": "CXR-specific configuration"}
+    )
     # TODO: implement this
     max_train_samples: Optional[int] = field(
         default=None,
@@ -235,7 +241,7 @@ class CustomArguments:
     lora_r: int = field(default=8, metadata={"help": "The r value for lora"})
 
     stop_after_n_steps: int = field(
-        default=100000, metadata={"help": "Stop training after n steps"}
+        default=1000000, metadata={"help": "Stop training after n steps"}
     )
 
     experiment_id: Optional[str] = field(
@@ -415,7 +421,7 @@ def main():
 
     # Use state.process_index to determine the total number of processes
     num_processes = state.num_processes if hasattr(state, 'num_processes') else 1
-
+    
     train_dataset = load_dataset(
             data_args.dataset_name,
             split="train",

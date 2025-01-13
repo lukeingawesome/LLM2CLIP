@@ -43,6 +43,30 @@ def parse_args(args):
         help="Path to csv file with validation data",
     )
     parser.add_argument(
+        "--rsna",
+        type=str,
+        default=None,
+        help="Path to rsna for conducting zero shot evaluation.",
+    )
+    parser.add_argument(
+        "--siim",
+        type=str,
+        default=None,
+        help="Path to siim for conducting zero shot evaluation.",
+    )
+    parser.add_argument(
+        "--openi",
+        type=str,
+        default=None,
+        help="Path to openi for conducting zero shot evaluation.",
+    )
+    parser.add_argument(
+        "--chexpertplus",
+        type=str,
+        default=None,
+        help="Path to chexpertplus for conducting zero shot evaluation.",
+    )
+    parser.add_argument(
         "--train-num-samples",
         type=int,
         default=None,
@@ -280,7 +304,7 @@ def parse_args(args):
     parser.add_argument(
         "--model",
         type=str,
-        default="EVA02-CLIP-L-14-336",
+        default="EVA02-CLIP-B-16",
         help="Name of the vision backbone to use.",
     )
     parser.add_argument(

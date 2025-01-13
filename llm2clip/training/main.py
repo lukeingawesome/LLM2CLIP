@@ -32,6 +32,7 @@ from training.optim import create_optimizer, get_all_parameters
 from llm2vec_wrapper import LLM2VecWrapper as LLM2Vec
 from peft import LoraConfig, get_peft_model
 
+
 def random_seed(seed=42, rank=0):
     torch.manual_seed(seed + rank)
     np.random.seed(seed + rank)

@@ -392,7 +392,7 @@ class CustomArguments:
     )
 
     stop_after_n_steps: int = field(
-        default=100000, metadata={"help": "Stop training after n steps"}
+        default=1000000, metadata={"help": "Stop training after n steps"}
     )
 
     data_collator_type: str = field(
@@ -470,16 +470,24 @@ class MNTPTrainer(Trainer):
 
         # Good practice: save your training arguments together with the trained model
         torch.save(self.args, os.path.join(output_dir, "training_args.bin"))
-
+import re
+import random
+def shuffle_sentences(text, is_shuffle=True):
+    sentences = re.split(r'(?<=[.!?])\s+', text)
+    random.shuffle(sentences)
+    shuffled_text = ' '.join(sentences)
+    return shuffled_text if is_shuffle else text
 
 class CXRDataset(datasets.Dataset):
     def __init__(self, file_path):
         # Create Arrow table from the data
         data = get_cxr_captions(file_path)
+        ran = random.randint(0, 1)
         # Ensure data is a list of strings
         if not isinstance(data, list):
             data = list(data)
-        data = [str(text) for text in data]  # Convert all items to strings
+        shuffle = bool(ran)
+        data = [shuffle_sentences(str(text), is_shuffle=shuffle) for text in data]  # Convert all items to strings
         
         arrow_data = {"text": data}
         self._data = datasets.Dataset.from_dict(arrow_data)
