@@ -160,7 +160,7 @@ def zero_shot_eval(model, l2v, data, epoch, args):
     # Add medical condition evaluation
     if 'rsna' in data:
         text_categories = {
-            'pneumonia': ["Pneumonia is present.", "No signs of pneumonia"],
+            'pneumonia': ["Detected abnormalities : There is pneumonia.", "Detected abnormalities : There is no pneumonia"],
         }
         
         logging.info('Building medical zero-shot classifier')
@@ -175,7 +175,7 @@ def zero_shot_eval(model, l2v, data, epoch, args):
 
     if 'siim' in data:
         text_categories = {
-            'pneumothorax': ['There is pneumothorax.', 'There is no pneumothorax.']
+            'pneumothorax': ['Detected abnormalities : There is pneumothorax.', 'Detected abnormalities : There is no pneumothorax.']
         }
         logging.info('Building medical zero-shot classifier')
         medical_classifier = zero_shot_classifier_medical(model, text_categories, l2v, args)

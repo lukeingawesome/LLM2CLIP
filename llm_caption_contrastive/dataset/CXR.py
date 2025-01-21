@@ -15,18 +15,29 @@ CXR_EMBEDDING_PROMPTS = {
 }
 
 def shuffle_sentences(text, is_shuffle=True):
-    # Split the text into sentences using a regex to account for periods that end sentences
-    if is_shuffle:
-        sentences = re.split(r'(?<=[.!?])\s+', text)
+    # Split the text into parts based on the first colon
+    if ':' in text:
+        before_colon, after_colon = text.split(':', 1)
+    else:
+        before_colon, after_colon = text, ""
     
-    # Shuffle the sentences
+    if is_shuffle and after_colon:
+        # Split the text after the colon into sentences using regex
+        sentences = re.split(r'(?<=[.!?])\s+', after_colon.strip())
+        
+        # Shuffle the sentences
         random.shuffle(sentences)
-
+        
         # Join the shuffled sentences back into a single string
         shuffled_text = ' '.join(sentences)
     else:
-        shuffled_text = text
-    return shuffled_text
+        shuffled_text = after_colon.strip()
+    
+    # Combine the part before the colon and the shuffled/unchanged part after the colon
+    if after_colon:
+        return f"{before_colon}: {shuffled_text}"
+    else:
+        return before_colon
 
 class CXRDataset(Dataset):
     def __init__(

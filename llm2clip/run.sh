@@ -1,11 +1,11 @@
-MODEL=EVA02-CLIP-B-16
+MODEL=EVA02-CLIP-L-14-336
 PRETRAINED=eva_clip
 python -m torch.distributed.launch --nproc_per_node=2 \
 	--use_env training/main.py \
         --enable-deepspeed \
         --grad-checkpointing \
-        --name="mimic_B16448_caption_local" \
-        --save-frequency 2  \
+        --name="mimic_B16448_8b_local" \
+        --save-frequency 10  \
         --local-loss \
         --zeroshot-frequency 2 \
         --report-to="tensorboard, wandb" \
@@ -16,8 +16,8 @@ python -m torch.distributed.launch --nproc_per_node=2 \
         --pretrained=${PRETRAINED} \
         --precision "fp16" \
         --warmup 0 \
-        --batch-size=256 \
-        --eval-batch-size=256 \
+        --batch-size=160 \
+        --eval-batch-size=160 \
         --log-every-n-steps 200 \
         --epochs=20 \
         --lr=1e-5 \
@@ -35,8 +35,8 @@ python -m torch.distributed.launch --nproc_per_node=2 \
         --model=${MODEL} \
         --seed 4096 \
         --gather-with-grad \
-        --text-base="meta-llama/Llama-3.2-3B" \
-        --llm2vec-path="/data/research/tmp/checkpoint-24678/" \
+        --text-base="meta-llama/Meta-Llama-3.1-8B-Instruct" \
+        --llm2vec-path="/data/research/tmp/checkpoint-llama8b2_old/" \
         --force-custom-clip \
         --optimizer="ap_adamw" \
         --zero-stage=1 \
