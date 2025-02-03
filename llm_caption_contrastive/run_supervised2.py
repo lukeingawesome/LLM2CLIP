@@ -380,13 +380,13 @@ class LLM2VecSupervisedTrainer(Trainer):
         return self.accelerator.prepare(DataLoader(train_dataset, **dataloader_params))
 
     def _save(self, output_dir: Optional[str] = None, state_dict=None):
+        # If we are executing this function, we are the process zero, so we don't check for that.
         output_dir = output_dir if output_dir is not None else self.args.output_dir
         os.makedirs(output_dir, exist_ok=True)
         logger.info(f"Saving model checkpoint to {output_dir}")
-        
-        # Save the model normally instead of using custom save
-        self.model.save_pretrained(output_dir)
-        
+
+        self.model.save(output_dir)
+
         # Good practice: save your training arguments together with the trained model
         torch.save(self.args, os.path.join(output_dir, "training_args.bin"))
 
@@ -448,7 +448,7 @@ def main():
     model = LLM2Vec.from_pretrained(
         base_model_name_or_path=model_args.model_name_or_path,
         enable_bidirectional=model_args.bidirectional,
-        peft_model_name_or_path=model_args.peft_model_name_or_path,
+        peft_model_name_or_path=model_args.peft_model_name_or_path, # TODO: remove this
         merge_peft=True,
         pooling_mode=model_args.pooling_mode,
         max_length=model_args.max_seq_length,
@@ -456,16 +456,22 @@ def main():
         attn_implementation=model_args.attn_implementation,
     )
 
-    # Remove PEFT initialization and instead print trainable parameters
-    trainable_params = 0
-    all_param = 0
-    for _, param in model.named_parameters():
-        all_param += param.numel()
-        if param.requires_grad:
-            trainable_params += param.numel()
-    print(
-        f"trainable params: {trainable_params} || all params: {all_param} || trainable%: {100 * trainable_params / all_param}"
+    # model organization is LLM2VecModel.model -> HF Model, we have to apply PEFT to the inner model
+    model.model = initialize_peft(
+        model.model,
+        lora_r=custom_args.lora_r,
+        lora_alpha=2 * custom_args.lora_r,
+        lora_dropout=custom_args.lora_dropout,
     )
+
+    # # Initialize PEFT only once
+    # if not hasattr(model.model, 'peft_config'):
+    #     model.model = initialize_peft(
+    #         model.model,
+    #         lora_r=custom_args.lora_r,
+    #         lora_alpha=2 * custom_args.lora_r,
+    #         lora_dropout=custom_args.lora_dropout,
+    #     )
 
     tokenizer = model.tokenizer
 

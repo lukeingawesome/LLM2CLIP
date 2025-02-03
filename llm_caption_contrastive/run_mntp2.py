@@ -458,19 +458,19 @@ class MNTPTrainer(Trainer):
     ):
         return dataset
 
-    # Replace the custom _save method with a standard save
+    # We need a custom save function as we have to save the inner model
     def _save(self, output_dir: Optional[str] = None, state_dict=None):
+        # If we are executing this function, we are the process zero, so we don't check for that.
         output_dir = output_dir if output_dir is not None else self.args.output_dir
         os.makedirs(output_dir, exist_ok=True)
         logger.info(f"Saving model checkpoint to {output_dir}")
-        
-        # Save the model normally
-        self.model.save_pretrained(output_dir)
-        self.tokenizer.save_pretrained(output_dir)
-        
-        # Save training arguments
-        torch.save(self.args, os.path.join(output_dir, "training_args.bin"))
 
+        # model organization is MODEL_TYPEBiForMNTP.model -> MODEL_TYPELBiModel, we have to save the inner model, handled by save_peft_model function of the outer model
+        self.model.save_peft_model(output_dir)
+        self.tokenizer.save_pretrained(output_dir)
+
+        # Good practice: save your training arguments together with the trained model
+        torch.save(self.args, os.path.join(output_dir, "training_args.bin"))
 import re
 import random
 def shuffle_sentences(text, is_shuffle=True):
@@ -729,17 +729,39 @@ def main():
         low_cpu_mem_usage=model_args.low_cpu_mem_usage,
         attn_implementation=model_args.attn_implementation,
     )
+    # for param in model.parameters():
+    #     param.requires_grad = False  # First freeze everything
 
-    # Print trainable parameters
-    trainable_params = 0
-    all_param = 0
-    for _, param in model.named_parameters():
-        all_param += param.numel()
-        if param.requires_grad:
-            trainable_params += param.numel()
-    print(
-        f"trainable params: {trainable_params} || all params: {all_param} || trainable%: {100 * trainable_params / all_param}"
-    )
+    # # Then unfreeze the attention layers we want to train
+    # for layer in model.model.layers:  # Adjust the path based on your model structure
+    #     # Unfreeze attention layers
+    #     for param in layer.self_attn.q_proj.parameters():
+    #         param.requires_grad = True
+    #     for param in layer.self_attn.k_proj.parameters():
+    #         param.requires_grad = True
+    #     for param in layer.self_attn.v_proj.parameters():
+    #         param.requires_grad = True
+    #     for param in layer.self_attn.o_proj.parameters():
+    #         param.requires_grad = True
+
+    # # Print trainable parameters to verify
+    # trainable_params = 0
+    # all_param = 0
+    # for name, module in model.named_modules():
+    #     if hasattr(module, 'r'):
+    #         module.r = custom_args.lora_r
+    #     if hasattr(module, 'lora_alpha'):
+    #         module.lora_alpha = 2 * custom_args.lora_r
+    #     if hasattr(module, 'lora_dropout'):
+    #         module.lora_dropout = nn.Dropout(p=custom_args.lora_dropout)
+
+    # for param in model.parameters():
+    #     all_param += param.numel()
+    #     if param.requires_grad:
+    #         trainable_params += param.numel()
+    # logger.info(
+    #     f"trainable params: {trainable_params} || all params: {all_param} || trainable%: {100 * trainable_params / all_param}"
+    # )
 
     extra_model_name_or_path = model_args.extra_model_name_or_path
     if extra_model_name_or_path is not None:
@@ -750,6 +772,13 @@ def main():
                 extra_model,
             )
             model = model.merge_and_unload()
+    # model organization is MODEL_TYPEBiForMNTP.model -> MODEL_TYPELBiModel, we have to apply PEFT to the inner model
+    model.model = initialize_peft(
+        model.model,
+        lora_r=custom_args.lora_r,
+        lora_alpha=2 * custom_args.lora_r,
+        lora_dropout=custom_args.lora_dropout,
+    )
 
     # We resize the embeddings only when necessary to avoid index errors. If you are creating a model from scratch
     # on a small vocab and want a smaller embedding size, remove this test.

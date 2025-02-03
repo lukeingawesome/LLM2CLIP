@@ -4,7 +4,7 @@ import sys
 import random
 from datetime import datetime
 sys.path.append(os.getcwd())
-
+from peft import PeftModel
 import numpy as np
 import torch
 from torch.cuda.amp import GradScaler
@@ -143,19 +143,25 @@ def main(args):
         cache_dir=args.cache_dir,
         skip_list=args.skip_list,
     )
-
+    logging.info("text_model is loading...")
     random_seed(args.seed, args.rank)
     if args.llm2vec_path:   
         print("Using LLM2Vec")
         text_model = LLM2Vec.from_pretrained(
             base_model_name_or_path=args.text_base,
             enable_bidirectional=True,
-            peft_model_name_or_path=args.llm2vec_path,
+            peft_model_name_or_path=args.text_base,
             merge_peft=True,
             pooling_mode="mean",
             max_length=512,
             torch_dtype=torch.bfloat16,
         )
+        text_model.model = PeftModel.from_pretrained(
+            text_model.model,
+            args.llm2vec_path,
+            )
+        
+        text_model.model = text_model.model.merge_and_unload()
         # Add a trainable projection layer
         projection_layer = nn.Sequential(
             nn.LayerNorm(text_model.config.hidden_size),

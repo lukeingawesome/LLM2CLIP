@@ -1,11 +1,11 @@
 MODEL=EVA02-CLIP-L-14-336
 PRETRAINED=eva_clip
-python -m torch.distributed.launch --nproc_per_node=2 \
+python -m torch.distributed.launch --nproc_per_node=4 \
 	--use_env training/main.py \
         --enable-deepspeed \
         --grad-checkpointing \
-        --name="mimic_B16448_8b_local" \
-        --save-frequency 10  \
+        --name="final_llm2clip_caption" \
+        --save-frequency 2  \
         --local-loss \
         --zeroshot-frequency 2 \
         --report-to="tensorboard, wandb" \
@@ -16,8 +16,8 @@ python -m torch.distributed.launch --nproc_per_node=2 \
         --pretrained=${PRETRAINED} \
         --precision "fp16" \
         --warmup 0 \
-        --batch-size=160 \
-        --eval-batch-size=160 \
+        --batch-size=128 \
+        --eval-batch-size=128 \
         --log-every-n-steps 200 \
         --epochs=20 \
         --lr=1e-5 \
@@ -35,14 +35,14 @@ python -m torch.distributed.launch --nproc_per_node=2 \
         --model=${MODEL} \
         --seed 4096 \
         --gather-with-grad \
-        --text-base="meta-llama/Meta-Llama-3.1-8B-Instruct" \
-        --llm2vec-path="/data/research/tmp/checkpoint-llama8b2_old/" \
+        --text-base="/model/llm2clip/llm2vec/8b_special/mntp/checkpoint-5779/" \
+        --llm2vec-path="/model/llm2clip/llm2vec/8b_special/supervised/checkpoint-12535/" \
         --force-custom-clip \
         --optimizer="ap_adamw" \
         --zero-stage=1 \
         --dataset-type "cxr" \
         --csv-img-key "img_path" \
-        --csv-caption-key "caption" \
+        --csv-caption-key "caption2_lite" \
         --rsna "/data/research/csv/rsna_test.csv" \
         --siim "/data/research/csv/siim_test.csv" \
         --openi "/data/csv/llm2clip/openi_clip_val.csv" \

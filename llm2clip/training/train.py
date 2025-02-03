@@ -259,12 +259,12 @@ def evaluate_iter(model, tokenizer, data, iter_nums, epoch, args, tb_writer=None
     model.eval()
     l2v = LLM2Vec(model.text.model, tokenizer, pooling_mode="mean", max_length=512) #TODO: modify this
     print('evaluating retrieval')
-    with torch.no_grad():
-        retrieval_zero_shot_metrics = retrieval_eval(model, l2v, data, epoch, args)
-        metrics.update(retrieval_zero_shot_metrics)
-        zero_shot_metrics = zero_shot_eval(model, l2v, data, epoch, args)
-        metrics.update(zero_shot_metrics)
-    print(zero_shot_metrics)
+    # with torch.no_grad():
+    #     retrieval_zero_shot_metrics = retrieval_eval(model, l2v, data, epoch, args)
+    #     metrics.update(retrieval_zero_shot_metrics)
+        # zero_shot_metrics = zero_shot_eval(model, l2v, data, epoch, args)
+        # metrics.update(zero_shot_metrics)
+    # print(zero_shot_metrics)
     autocast = get_autocast(args.precision)
     cast_dtype = get_cast_dtype(args.precision)
     if 'val' in data:
@@ -356,9 +356,9 @@ def evaluate(model, tokenizer, data, epoch, args, tb_writer=None):
     l2v = LLM2Vec(model.text.model, tokenizer, pooling_mode="mean", max_length=512) #TODO: modify this
     retrieval_zero_shot_metrics = retrieval_eval(model, l2v, data, epoch, args)
     metrics.update(retrieval_zero_shot_metrics)
-    zero_shot_metrics = zero_shot_eval(model, l2v, data, epoch, args)
-    metrics.update(zero_shot_metrics)
-    print(zero_shot_metrics)
+    # zero_shot_metrics = zero_shot_eval(model, l2v, data, epoch, args)
+    # metrics.update(zero_shot_metrics)
+    # print(zero_shot_metrics)
     autocast = get_autocast(args.precision)
     cast_dtype = get_cast_dtype(args.precision)
 

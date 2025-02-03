@@ -1,7 +1,7 @@
 {
     "embed_dim": 1280,
     "vision_cfg": {
-        "image_size": 336,
+        "image_size": 448,
         "layers": 24,
         "width": 1024,
         "drop_path_rate": 0,

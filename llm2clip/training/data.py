@@ -51,17 +51,21 @@ from torch.utils.data import Dataset, DataLoader
 from PIL import Image
 import torch
 
-def apply_dropout(text):
+def apply_dropout(text, age_dropout=0.3, view_dropout=0.3, gender_dropout=0.3, bmi_dropout=0.3):
     # 30% chance to drop each attribute
-    if random.random() < 0.3:
+    if random.random() < view_dropout:
         # Replace view position
         text = re.sub(r"This is a (\w+) view", "This is a unknown view", text)
     
-    if random.random() < 0.3:
+    if random.random() < age_dropout:
         # Replace age
-        text = re.sub(r"The patient is (\d+) years old", "The patient is unknown years old", text)
+        text = re.sub(r"The patient's age is (\d+)", "The patient's age is unknown", text)
+
+    if random.random() < bmi_dropout:
+        # Replace age
+        text = re.sub(r"The patient's bmi is (\d+)", "The patient's bmi is unknown", text)
     
-    if random.random() < 0.3:
+    if random.random() < gender_dropout:
         # Replace gender
         text = re.sub(r"The patient's gender is (\w+)", "The patient's gender is unknown", text)
     
